@@ -1,0 +1,554 @@
+---
+title: "DESeq2_analysis"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: "Susanne Bauer"
+output:
+    html_document: 
+      code_folding: hide
+      fig_caption: yes
+      number_sections: yes
+      toc: yes
+      toc_float:
+        collapsed: yes
+params:
+  directory: "~/Documents/DataAnalysis_Ribotag/Prion_project/"
+  disease: "CJD"
+  disease_samples: "CJD_SST_IP" 
+  control_samples: "Control_SST_IP"
+editor_options: 
+  chunk_output_type: console
+---
+<!-- 
+disease: options are "CJD" or "FFI"
+
+Structure for specifying disease and control samples: "<Disease>_<Celltype>_<Fraction>"
+Disease: FFI , CJD , Control
+Celltype: GadCer , GadCb , SST , PV , VglutCer , VglutCb
+Fraction: IP , total
+
+
+-->
+
+```{r Setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(fig.height = 6, fig.width = 8, fig.align = 'center')
+```
+
+
+```{r load Dependencies, include = FALSE}
+library(dplyr)
+library(tximport)
+library(ggplot2)
+library(ggpubr)
+library(ggrepel)
+library(magrittr)
+library(FactoMineR)
+library(factoextra)
+library(preprocessCore)
+library(pheatmap)
+library(reshape2)
+library(DESeq2)
+library(RColorBrewer)
+library(corrplot)
+library(org.Mm.eg.db)
+library(stringr)
+
+date <- Sys.Date()
+
+group_color_scheme <- c(FFI = "#B74D67", CJD = "#1D599C", Control = "#C7B6DD")
+celltype_color_scheme <- c(Gad2 = "#50C1CA", PV = "#8B6EDA", SST = "#E0D42A", vGlut2 = "#D55E00")
+region_color_scheme <- c(Cerebrum = "black", Cerebellum = "#B7B6BB")
+fraction_color_scheme <- c(IP = "#157F1B" , total = "#E8B94D" )
+new_ct_color <- c(`Gad2 Cerebrum` = "#50C1CA", `PV Cerebrum` = "#8B6EDA", `SST Cerebrum` = "#E0D42A", `vGlut2 Cerebrum` = "#D55E00", `Gad2 Cerebellum` = "#BDE8EB", `vGlut2 Cerebellum` = "#EAAF80")
+
+ann_colors <- list(Group = group_color_scheme,
+                   Cell_type = celltype_color_scheme,
+                   Region = region_color_scheme,
+                   Fraction = fraction_color_scheme,
+                   sample_set = new_ct_color)
+```
+
+
+```{r Read parameters}
+disease <- params$disease
+disease_samples <- params$disease_samples
+control_samples <- params$control_samples
+sample_label <- disease_samples %>% str_replace(., "_", " ") %>% str_remove(., "_IP")
+
+#select samples for analysis
+metadata <- read.csv("./metadata/prionsamples_meta.csv", header = T, sep = ",")
+cols <- c("Age", "Prep_date","Death_day","seq_lane","Group")
+metadata[cols] <- lapply(metadata[cols], factor) 
+
+#subset which samples to analyze
+samples_meta <- metadata %>%
+  filter(sample_set %in% c(disease_samples, control_samples))
+
+#list salmon output files (quant.sf) for selected samples
+files <- file.path(paste0("./raw_data/",samples_meta$nfcore_id, "quant.sf"))
+
+#assign sample id to file names to rename samples based on id in txi output
+names(files) <- samples_meta$sample_id  
+print(files)
+
+#
+tx2gene <- read.table("./metadata/salmon_tx2gene.tsv")
+
+#read in salmon output files 
+txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
+#tximport generates several output files. "count" matrix containes raw counts summarized to gene level, which are used for DESeq2 analysis. "abundance" gives tpm values summarized to gene level.
+
+
+#check that sample order in count and metadata files match
+sample_ids <- samples_meta$sample_id
+all(colnames(txi$counts) == sample_ids)
+```
+
+
+#create dds object
+```{r Run DESeq2}
+# create initial DESeqData object from txi data set
+dds <- DESeqDataSetFromTximport(
+  txi = txi,
+  colData = samples_meta,
+  design = ~0 + Group)
+
+#remove version number from ensembl transcript id
+rownames(dds) <- stringr::str_replace(rownames(dds), pattern = ".[0-9]+$", replacement = "")
+
+#show library size
+barplot(colSums(assay(dds)), main = "Library sizes", ylab = "reads (Million)")
+
+#filtering out non- or low expressed genes
+expressed_genes <- assay(dds) > 10
+hist(rowSums(expressed_genes),main="Number of samples a gene is expressed in",xlab="Sample Count")
+```
+
+
+
+```{r load input files, include= FALSE}
+library(biomaRt)
+mouse_mart = useMart(biomart = "ensembl", dataset = "mmusculus_gene_ensembl")
+df_mm_genes_ensembl <- getBM(attributes = c("ensembl_gene_id", "entrezgene_id", "external_gene_name", "gene_biotype", "chromosome_name", "start_position", "end_position", "strand", "description"), 
+             mart = mouse_mart)
+detach(package:biomaRt)
+
+ProteinCodingGenes <- df_mm_genes_ensembl %>% filter(gene_biotype == "protein_coding")
+```
+
+
+#QC 
+```{r}
+#normalize and log transform raw counts using vst for visualization
+vsd <- vst(dds, blind = T)
+
+# Check count distributions of samples using boxplots
+boxplot(log10(assay(dds)))
+{boxplot(assay(vsd), xlab="",main="Normalized Distributions")
+  abline(h=median(assay(vsd)), col="red")}
+
+#heatmap of count matrix
+select <- order(rowMeans(counts(dds)), decreasing=TRUE)[1:20]
+df <- as.data.frame(colData(dds)[,c("Group","Gender")])
+pheatmap(assay(vsd)[select,], 
+         cluster_rows=F,
+         cluster_cols=F, 
+         annotation_col=df)
+
+
+# sample-to-sample distance
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(colData(dds)$CellType, colData(dds)$Group)
+colnames(sampleDistMatrix) <- colData(dds)$sample_id
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         col=colors)
+
+#plot PCA based on genotype (saves plot without sample labels !)
+pcaData <- plotPCA(vsd,intgroup=c("Group","Prep_date", "Gender", "Age", "sample_id"), returnData = T)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pca <- ggplot(pcaData, aes(x = PC1, y = PC2, color = Group))+
+  geom_point(size  = 2)+
+  scale_color_manual(values = group_color_scheme)+
+  #geom_text_repel(aes(label = sample_id), show.legend = F)+
+  coord_fixed()+
+  theme_bw()+
+  theme(panel.grid = element_blank())+
+  labs(title = paste0(disease," - ", vsd$Cell_type[1]," - ",  vsd$Region[1]),
+       x = paste0("PC1: ",percentVar[1],"% variance"),
+       y = paste0("PC2: ",percentVar[2],"% variance"),
+       color = "Genotype")
+ggsave(file = paste0("./figures/DESeq2/",disease,"/",disease_samples,"_PCA.png"), plot = pca, dpi = 300)
+
+pca + geom_text_repel(aes(label = sample_id), show.legend = F)
+```
+
+
+##Run DESeq2 analysis 
+```{r get DESeq2 results}
+#remove genes with less than 10 average reads across all samples
+dds <- estimateSizeFactors(dds)
+keep <- rowMeans(counts(dds, normalized = T)) >10 
+dds <- dds[keep,]
+
+#subset dds to include only protein coding genes
+idx_row <- which(rownames(dds) %in% ProteinCodingGenes$ensembl_gene_id)
+dds <- dds[idx_row,]
+
+#set control as reference level for comparison 
+dds$Group <- relevel(dds$Group, ref = "Control")
+
+#run DESeq analysis, 
+dds <- DESeq(dds, betaPrior = F)
+
+#buld results table using contrast function to compare disease and control groups (using control as refernce level), FDR cutoff is 0.05
+res <- results(dds, contrast=c("Group", disease, "Control"), alpha = 0.05)
+
+#get shrunken LFC add to results file
+resLFC <- lfcShrink(dds= dds, type = "ashr", contrast = c("Group", disease, "Control"))
+res$shrunkenLFC <- resLFC$log2FoldChange
+res$shrunkenlfcSE <- resLFC$lfcSE
+
+#remove incomplete cases and order results ascending by pvalue
+res <- res[! (is.na(res$pvalue)|is.na(res$padj)),]
+
+#add gene symbol and entrez ID to results file
+ensbl_ids <- rownames(res)
+res$symbol <- mapIds(org.Mm.eg.db, colum = "SYMBOL", keys = ensbl_ids, keytype = "ENSEMBL", multiVals = "first" )
+res$entrez <- mapIds(org.Mm.eg.db, keys= ensbl_ids, column="ENTREZID", keytype= "ENSEMBL", multiVals="first")
+res <- res[complete.cases(res),]
+
+#order results by p value and select significant DEGs (padj < 0.05)
+resOrdered <- res[order(res$pvalue),] 
+DEGSig <- subset(resOrdered, padj < 0.05)
+DEGSig <- DEGSig[order(DEGSig$padj),]
+show <-cbind(DEGSig$padj, DEGSig$shrunkenLFC, DEGSig$symbol)
+
+#print results overview
+paste("Number of differentially expressed genes before FDR correction, p-value < 0.05: " , sum(res$pvalue < 0.05, na.rm =T))
+paste("Number of differentially expressed genes after FDR correction (Benjamini-Hochberg), FDR < 0.05: ", sum(res$padj < 0.05, na.rm = T))
+summary(res)
+
+#DEGs XY chromosomes
+XYgenes <-  ProteinCodingGenes %>%
+  filter(ensembl_gene_id %in% rownames(DEGSig))%>%
+  filter(chromosome_name %in% c("X","Y"))
+```
+
+
+#Results 
+```{r visualize DEGs}
+
+choose_top <- function(data = resOrdered, num = 20){
+  top <- sum(data$padj < 0.05)
+  top <- ifelse(top > num, num, as.numeric(top))
+return(top)
+}
+top <- choose_top(resOrdered)
+
+#plot dispersion
+plotDispEsts(dds, ylim=c(1e-6,1e1))
+
+#plotMA show shrunken log2 fold change over mean normalized counts, red if padj < 0.05 (alpha)
+plotMA(resLFC, ylim = c(-2,2)) 
+
+#plot counts from top DEG by group
+topDEG <- rownames(res)[which.min(res$padj)]
+geneCounts <- plotCounts(dds, gene = topDEG, intgroup = c("Group"), returnData = T)
+
+#plot
+topDEG_plot <- ggplot(geneCounts, aes(x = Group, y = count, group = Group))+
+  geom_boxplot() + 
+  geom_point(aes(color = Group),position = position_jitter(w=0.1, h=0), size = 3) +
+  geom_text_repel(aes(label=rownames(geneCounts)), show.legend = F)+
+  scale_y_log10() + 
+  theme_bw()+
+  labs( title = "Expression top differentially expressed gene",
+        subtitle = paste0(res$symbol[which.min(res$padj)], "; ", disease_samples),
+        y = "Normalized counts")
+topDEG_plot
+
+#select top 20 most significant DEGs, extract normalized counts and set gene symbol as gene id
+norm_counts <- counts(dds, normalized=T)
+DEGSignorm <- norm_counts[rownames(DEGSig), ]
+top20 <- DEGSignorm[1:top,]
+top20symbol <- mapIds(org.Mm.eg.db, colum = "SYMBOL", keys = rownames(top20), keytype = "ENSEMBL", multiVals = "first" )
+rownames(top20) <-top20symbol
+
+
+melt_top20 <- as.data.frame(melt(top20))
+colnames(melt_top20) <- c("gene", "sample_id", "normalized_counts")
+meta <- samples_meta[,c("sample_id","Group")]
+melt_top20 <- merge(melt_top20, meta)
+
+#plot counts for top 20 DEGs by group
+ggplot(melt_top20, aes(x = gene, y = normalized_counts, color = Group)) +
+        #geom_point() +
+        geom_boxplot()+
+        scale_color_manual(values = group_color_scheme)+
+        scale_y_log10() +
+        theme_bw() +
+	theme(axis.text.x = element_text(angle = 45, hjust = 1),
+	      plot.title=element_text(hjust=0.5))+
+  labs(title = "Top DEGs",
+       subtitle = disease_samples,
+       x = "Genes",
+       y = "log10(Normalized counts)")
+
+
+#Heatmap DEGs, using Z_scores of norm. transformed dds counts
+ntd <- assay(normTransform(dds))
+cal_z_score <- function(x){(x - mean(x)) / sd(x)}
+z_scores <- t(apply(ntd, 1, cal_z_score))
+z_scores <- data.frame(z_scores[rownames(DEGSig), ])
+
+#get annotations for samples
+df <- data.frame(Group = colData(dds)[,c("Group")])
+rownames(df) <- colData(dds)[,c("sample_id")]
+ann_colors <- list(Group = group_color_scheme,
+                   `Cell type` = celltype_color_scheme,
+                   Region = region_color_scheme,
+                   Fraction = fraction_color_scheme)
+#genes to higlight 
+rplgenes <- ProteinCodingGenes %>%
+  filter(grepl("Rpl|Rps", external_gene_name))
+goi <- rownames(z_scores)
+goi <- ifelse(goi %in% rplgenes$ensembl_gene_id, rplgenes$external_gene_name, "")
+
+goi <- c("Kif1b", "Depdc5", "Gsn", "Dbn1")
+deg_heat <- pheatmap(z_scores,
+         scale = "none",
+         annotation_colors = ann_colors,
+         annotation_col = df,
+         annotation_names_col = F,
+         annotation_legend = F,
+         cluster_rows = T,
+         cluster_cols = F,
+         show_rownames= T,
+         show_colnames = F,
+         color = colorRampPalette(c("blue","white","red"))(100),
+         border_color=NA,
+         fontsize = 10,
+         height=20,
+         main = paste0("Differentially expressed genes - ", sample_label),
+         legend = T)
+deg_heat
+ggsave(file = paste0("./figures/DESeq2/",disease,"/",disease_samples,"_heat_deg.png"), plot = deg_heat)
+
+
+#Volcano plots
+#get results and label top DEGs or HD markergenes
+res_df <- res %>%
+  data.frame(.)%>%
+  arrange(padj)%>%
+  mutate(DEG = case_when(padj <= 0.05 ~ disease,
+                         T ~ "nonSig"))
+dis_col <- group_color_scheme[disease]
+#plot
+Volcano <- ggplot(res_df, aes(x = log2FoldChange, y = -log(padj), color = DEG)) +
+  geom_point() +
+  #geom_text_repel(aes(label = ifelse(topgenes == T, symbol,"")), show.legend = F) + 
+  scale_color_manual(values = c(dis_col, "grey72"), labels = c("FDR < 0.05", "FDR > 0.05"))+
+  theme_bw()+
+  theme(panel.grid = element_blank())+
+    labs(title = paste0("Volcano plot - ", sample_label),
+         x = "log2 fold change",
+         y = "-log(FDR)",
+         color = "")
+
+Volcano 
+ggsave(file = paste0("./figures/DESeq2/",disease,"/",disease_samples,"_Volcano.png"), plot = Volcano, dpi = 300)
+```
+
+
+
+```{r enrichr ORA}
+library(enrichR)
+
+up_deg <- res_df %>%
+  filter(padj <= 0.05)%>%
+  filter(log2FoldChange > 0) %>%
+  arrange(padj)%>%
+  pull(symbol)
+down_deg <- res_df %>%
+  filter(padj <= 0.05)%>%
+  filter(log2FoldChange < 0) %>%
+  arrange(padj)%>%
+  pull(symbol)
+
+ORA_enrichr <- function(genes){
+  
+  require(enrichR)
+  dbs <- c('GO_Biological_Process_2021', 'GO_Cellular_Component_2021', 'GO_Molecular_Function_2021', 'KEGG_2019_Mouse')
+  ora <- enrichr(genes, dbs)
+  
+  for (i in 1:length(ora)) {
+    ora[[i]] <- ora[[i]] %>% filter(Adjusted.P.value <= 0.01)
+    i <- i+1
+  }
+  ora <- do.call(rbind, ora)
+  
+  return(ora)
+}
+
+ora_up <- ORA_enrichr(up_deg)
+ora_up$Direction <- "up"
+ora_down <- ORA_enrichr(down_deg)
+ora_down$Direction <- "down"
+ora_deg <- rbind(ora_up, ora_down)
+
+write.csv(ora_deg, file = paste0("./result_files/DESeq/", disease, "/Enrichr_",disease_samples,".csv" ))
+
+### Get top 10 enriched terms per ontology class
+top10_gs <- ora_deg %>%
+  #get GO Id
+  mutate(ID = str_sub(Term, start = -11, end = -2))%>%
+  mutate(ID = case_when(str_detect(ID, pattern = "GO:") ~ ID,
+                        TRUE ~ " "))%>%
+  mutate(gs = str_remove(Term, pattern = ".(GO:d*.*)"))%>%
+  #add ontology
+  mutate(Category = case_when(str_detect(rownames(.), pattern = "Cellular") ~"CC",
+                              str_detect(rownames(.), pattern = "Process") ~"BP",
+                              str_detect(rownames(.), pattern = "Molecular") ~"MF",
+                              str_detect(rownames(.), pattern = "KEGG") ~"KEGG"))%>%
+  #get gene set size and exclude gene sets smaller than 15 genes
+  mutate(set_size = as.numeric(str_extract(Overlap, pattern = "[:digit:]+$")))%>%
+  filter(set_size > 15)%>%
+  #get top 10 genesets for each ontology category
+  arrange(Adjusted.P.value)%>%
+  group_by(Direction ,Category)
+  slice_head(n = 10)
+write.csv(ora_deg, file = paste0("./result_files/DESeq/", disease, "/Enrichr_top5_",disease_samples,".csv" ))
+  
+
+tile_plot_top10 <- function(ora){
+  
+  tile_df <- str_split(ora$Genes, ";")
+  names(tile_df) <- ora$gs
+  tile_df <- data.frame(do.call(c, tile_df))
+  tile_df$gs <- str_replace_all(rownames(tile_df), "[:digit:]+$","")
+  idx <- match(tile_df$gs, ora$gs)
+  tile_df$p_val <- ora$P.value[idx]
+  tile_df$ratio <- ora$Overlap[idx]
+  tile_df$ont <- ora$Category[idx]
+  tile_df$fdr <- ora$Adjusted.P.value[idx]
+  tile_df$label <- paste0(tile_df$gs, " (", tile_df$ratio,")")
+  colnames(tile_df) <- c("gene", "gs", "p_val", "ratio", "ont", "fdr", "label")
+  tile_df$gene <- str_to_title(tile_df$gene)
+  tile_df <- tile_df %>%
+    filter(fdr <= 0.01)%>%
+    filter(ont != "KEGG")
+
+  tile <- ggplot(tile_df, aes(x = gene, y = reorder(label, 1/fdr), fill = fdr))+
+    geom_tile(color = "white")+
+    scale_fill_gradient(low = "#542788", high = "#FFC300")+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.25),
+          panel.grid = element_blank(),
+          plot.title.position = "plot",
+          #legend.key.size = unit(0.8, "cm"),
+          legend.key.width = unit(1, "cm"),
+          legend.position = "top",
+          strip.placement = "outside",
+          strip.text.y = element_text(angle = 0),
+          strip.background = element_rect(fill = "white"),
+          panel.spacing = unit(0.1, "lines"))+
+    labs(
+      x = NULL,
+      y = NULL,
+      fill = "FDR ≤ 0.01"
+    )+
+  facet_grid(ont~., space = "free", scales = "free_y", shrink = T)
+  tile
+  return(tile)
+}
+
+top_up <- tile_plot_top10(top10_gs %>% filter(Direction == "up")) + labs(subtitle = "Up-regulated DEGs")
+top_dn <- tile_plot_top10(top10_gs %>% filter(Direction == "down")) + labs(subtitle = "Down-regulated DEGs")
+
+cowplot::plot_grid(top_up + labs(title = paste(sample_label,"- GO terms for for differenially expressed genes")), ncol = 1, align = "v", axis = "lr")
+
+ggsave(file = paste0("./figures/DESeq2/", disease, "/", disease_samples,"fdr001_gs_tile.png"), dpi = 300, units = "cm", height = 15, width = 25)
+
+#####tile plot all gs > 15 genes
+
+tile_plot_ORA <- function(ora){
+ 
+  ora <- ora %>%
+    mutate(ID = str_sub(Term, start = -11, end = -2))%>%
+    mutate(ID = case_when(str_detect(ID, pattern = "GO:") ~ ID,
+                          TRUE ~ " "))%>%
+    mutate(gs = str_remove(Term, pattern = ".(GO:d*.*)"))%>%
+    mutate(Category = case_when(str_detect(rownames(.), pattern = "Cellular") ~"CC",
+                                str_detect(rownames(.), pattern = "Process") ~"BP",
+                                str_detect(rownames(.), pattern = "Molecular") ~"MF",
+                                str_detect(rownames(.), pattern = "KEGG") ~"KEGG"))%>%
+    mutate(set_size = as.numeric(str_extract(Overlap, pattern = "[:digit:]+$")))%>%
+    filter(set_size > 15)
+  
+  tile_df <- str_split(ora$Genes, ";")
+  names(tile_df) <- ora$gs
+  tile_df <- data.frame(do.call(c, tile_df))
+  tile_df$gs <- str_replace_all(rownames(tile_df), "[:digit:]+$","")
+  idx <- match(tile_df$gs, ora$gs)
+  tile_df$p_val <- ora$P.value[idx]
+  tile_df$ratio <- ora$Overlap[idx]
+  tile_df$ont <- ora$Category[idx]
+  tile_df$label <- paste0(tile_df$gs, " (", tile_df$ratio,")")
+  colnames(tile_df) <- c("gene", "gs", "p_val", "ratio", "ont", "label")
+  tile_df$gene <- str_to_title(tile_df$gene)
+
+  tile <- ggplot(tile_df, aes(x = gene, y = label, fill = p_val))+
+    geom_tile(color = "white")+
+    scale_fill_gradient(low = "#542788", high = "#FFC300")+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.25),
+          panel.grid = element_blank(),
+          plot.title.position = "plot",
+          legend.key.size = unit(0.5, "cm"),
+          legend.position = "top",
+          strip.placement = "outside",
+          strip.text.y = element_text(angle = 0),
+          strip.background = element_rect(fill = "white"),
+          panel.spacing = unit(0.1, "lines"))+
+    labs(
+      x = "",
+      y = "",
+      fill = "p value"
+    )+
+  facet_grid(ont~., space = "free", scales = "free_y", shrink = T)
+  tile
+  return(tile)
+}
+
+tile_up <- tile_plot_ORA(ora_up)
+up <- tile_up + labs(title = paste0("Overrepresentation Analysis up-regulated DEGs - ", disease_samples))
+
+ggsave(file = paste0("./figures/DESeq2/", disease, "/", disease_samples,"_ORAtile_up.png"), dpi = 300, units = "cm")
+
+tile_down <- tile_plot_ORA(ora_down)
+down <- tile_down + labs(title = paste0("Overrepresentation Analysis down-regulated DEGs - ", disease_samples))
+
+cowplot::plot_grid(up, down, ncol = 1, nrow = 2)
+
+ggsave(file = paste0("./figures/DESeq2/", disease, "/", disease_samples,"_ORAtile.png"), dpi = 300, units = "cm", height = 40, width = 25)
+
+
+```
+
+
+#save output 
+```{r save output, message = FALSE}
+#save DESeq2 output and sessionInfo
+write.csv(as.data.frame(resOrdered), file = paste0("./intermediate_files/",disease,"/DESeq2_", disease_samples,".csv"))
+
+#save details from DESeq2 run (date, design formula, input samples)
+date <- Sys.time()
+run_info <- list(date(), samples_meta$sample_id, design(dds), sessionInfo())
+names(run_info) <- c("Run date", "Analyzed samples", "DESeq2 design formula", "Session Info")
+writeLines(capture.output(run_info), paste0("./documentation/Run_info_DESeq2_",disease_samples,".txt"))
+
+print(run_info)
+```

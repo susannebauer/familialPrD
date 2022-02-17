@@ -1,0 +1,1532 @@
+---
+title: "Network analysis salmon"
+author: "Susanne Bauer"
+date: "04/03/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+params:
+  directory: "~/Documents/DataAnalysis_Ribotag/Prion_project/"
+  celltype: "SST"
+--- 
+<!--
+valid celltype: "GadCer" , "SST" , "PV" , "VglutCer" , "GadCb" , "VglutCb"
+-->
+---
+
+```{r Setup, include = FALSE}
+knitr::opts_knit$set(root.dir = "~/Documents/DataAnalysis_Ribotag/Prion_project/")
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(fig.height = 6, fig.width = 8, fig.align = 'center')
+```
+
+
+```{r load packages, include=F}
+library(tidyverse)
+library(tximport)
+library(ggplot2)
+library(Hmisc)
+library(ggcorrplot)
+library(corrplot)
+library(RColorBrewer)
+library(kableExtra)
+library(patchwork)
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+
+#get run parameters
+dir <- params$directory
+celltype <- params$celltype
+date <- Sys.Date()
+
+#create new folder for output files
+outdir <- file.path(paste0(dir,"result_files/Network/",celltype,"_",date))
+ifelse(!dir.exists(outdir), dir.create(outdir),F) #directory for output files
+fig <- file.path(paste0(outdir, "/figures"))
+ifelse(!dir.exists(fig), dir.create(fig), F) #subdirectory for figures
+setwd(outdir)
+
+
+group_color_scheme <- c(FFI = "#B74D67", CJD = "#1D599C", Control = "#C7B6DD")
+```
+
+```{r load input files, include=FALSE}
+#read in files
+metadata <- read.csv(paste0(dir, "metadata/prionsamples_meta.csv"), header = T, sep = ",")
+cols <- c("Age", "Prep_date","Death_day","seq_lane","batch", "Group")
+metadata[cols] <- lapply(metadata[cols], factor) 
+
+#select samples
+metadata <- metadata %>%
+  filter(sample_set != "exclude") %>%
+  filter(Fraction == "IP") %>%
+  filter(grepl(pattern = celltype, sample_set))
+print(metadata$sample_id)
+
+#list salmon output files (quant.sf) for selected samples
+files <- file.path(paste0(dir, "raw_data/"),metadata$nfcore_id, "quant.sf")
+
+#assign sample id to file names to rename samples based on id in txi output
+names(files) <- metadata$sample_id  
+
+tx2gene <- read.table(paste0(dir, "metadata/salmon_tx2gene.tsv"))
+
+#read in salmon output files 
+txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
+
+#check that sample order in count and metadata files match
+sample_ids <- metadata$sample_id
+all(colnames(txi$counts) == sample_ids)
+
+#select TPM values 
+data <- txi$abundance
+rownames(data) <- stringr::str_replace(rownames(data), pattern = ".[0-9]+$", replacement = "")
+
+#keep only protein coding genes
+library(biomaRt)
+mouse_mart = useMart(biomart = "ensembl", dataset = "mmusculus_gene_ensembl")
+df_mm_genes_ensembl <- getBM(attributes = c("ensembl_gene_id", "entrezgene_id", "external_gene_name", "gene_biotype", "chromosome_name", "strand", "gene_biotype"), 
+             mart = mouse_mart)
+detach(package:biomaRt)
+ProteinCodingGenes <- df_mm_genes_ensembl %>% filter(gene_biotype == "protein_coding")
+
+#replace ensembl id with gene symbol, keep protein coding genes
+samples <- colnames(data)
+data <- data.frame(data)
+data <- data[rownames(data) %in% ProteinCodingGenes$ensembl_gene_id,]
+data$symbol <- mapIds(org.Mm.eg.db, colum = "SYMBOL", keys = rownames(data), keytype = "ENSEMBL", multiVals = "first" )
+data <- aggregate(data[,samples], by= data["symbol"], FUN = sum)
+rownames(data) <- data$symbol
+data <- data[,samples]
+```
+
+
+
+```{r filter out genes with lowest expression and variance}
+#remove low expressed genes
+data <- data[rowMeans(data) > 10,]
+
+#calculate variance across all samples (columns) for each gene (row)
+var <- apply(data,1,var)
+
+#keep only top x% of variabe genes
+perc <- round(length(var)*0.8)
+top_var <- names(var[order(var, decreasing = T)][1:perc])
+data <- data[top_var,]
+
+paste0("Dimension matrix: ",dim(data))
+paste0("Any duplicated genes? ", any(duplicated(rownames(data))))
+```
+
+
+##Gene-wise correaltion analysis (spearman)
+```{r run gene-wise spearman correlation}
+#transpose df to run correlation analysis on features
+values <- t(data)
+dim(values)
+
+#rcorr returns separate matrices with spearman R ("r") and p-values for correlations ("P")
+corr_matrix <- rcorr(as.matrix(values), type = "spearman")
+R_matrix <- corr_matrix$r
+P_matrix <- corr_matrix$P
+```
+
+
+
+```{r plot gene-wise correlation matrix (!!! time intensive !!!)}
+#plot all correlation between genes
+colpal <- brewer.pal(n = 10, name = "RdYlBu")
+
+png(filename = paste0(outdir,"/corrplot_",celltype,"_",date,".png"), height = 600, width = 600)
+r_matrix_plot <- corrplot(corr = R_matrix,
+                      method = "color",
+                      type = "upper",
+                      order = "hclust",
+                      diag = F,
+                      tl.pos = "n"
+                     )
+dev.off()
+```
+
+
+#plot p-values for correlations
+```{r plot significant correlations}
+# #correlation plot showing only significant correlations (p < 0.01), set all non-sig. correlation to 1 for clear visualization
+# changed_p_matrix <- P_matrix
+# changed_p_matrix[changed_p_matrix > 0.01] <- 1
+# 
+#png(filename = paste0(dir, "figures/Network/",celltype,"/P_corrplot_",celltype,".png"), height = 900, width = 900)
+# p_matrix_plot <- corrplot(corr = changed_p_matrix,
+#                       method = "color",
+#                       type = "upper",
+#                       order = "hclust",
+#                       diag = F,
+#                       tl.pos = "n"
+#                      )
+#dev.off()
+```
+
+
+#run multiple testing correction 
+```{r multiple testing correction}
+#combine P and R matrix in one data frame, keeping only the upper triangle of the matrix (i.e. eliminating double correlations)
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+PR_matrix <- flattenCorrMatrix(cormat = R_matrix, pmat = P_matrix)
+colnames(PR_matrix) <- c("feat1", "feat2", "R", "P")
+PR_matrix <- PR_matrix[PR_matrix$feat1 != PR_matrix$feat2,]
+
+paste0("Number total correlations: ", length(PR_matrix$R))
+
+#multiple hyothesis correction using bonferroni or fdr, adding results in new columns
+PR_matrix$padj <- p.adjust(PR_matrix$P, method = "bonferroni", n = length(PR_matrix$P))
+PR_matrix$fdr <- p.adjust(PR_matrix$P, method = "fdr", n = length(PR_matrix$P))
+
+#add new columns keeping only adjusted p-values for significant correlation after correction (alpha = 0.01)
+PR_matrix$padj_sig <- ifelse(PR_matrix$padj > 0.01, NA, PR_matrix$padj)
+PR_matrix$fdr_sig <- ifelse(PR_matrix$fdr > 0.01, NA, PR_matrix$fdr)
+
+#count number of significant and non-significant correlations after correction
+n_padj <- dplyr::count(PR_matrix, !is.na(padj_sig))
+n_fdr <- dplyr::count(PR_matrix, !is.na(fdr_sig))
+
+#number of significant correlations after correction
+paste0("Significant correlation after Bonferroni correction: ", n_padj[2,"n"])
+paste0("Significant correlation after False discovery rate adjustment: ", n_fdr[2,"n"])
+```
+
+
+#correlation plots using only top features
+```{r plot significant correlations after post-hoc correction}
+#Wide matrix with correlated features and padj value for correlation
+R_matrix_padj <- PR_matrix[, c("feat1", "feat2", "padj_sig")]
+R_matrix_padj <- R_matrix_padj[R_matrix_padj$feat1 != R_matrix_padj$feat2,]
+R_matrix_padj <- pivot_wider(R_matrix_padj, names_from = "feat2", values_from = "padj_sig", values_fill = NA)
+R_matrix_padj <- data.frame(R_matrix_padj)
+rownames(R_matrix_padj) <- R_matrix_padj$feat1
+R_matrix_padj$feat1 <- NULL
+
+#same for fdr
+R_matrix_fdr <- PR_matrix[,c("feat1", "feat2", "fdr_sig")]
+R_matrix_fdr <- R_matrix_fdr[R_matrix_fdr$feat1 != R_matrix_fdr$feat2,]
+PR_fdr_wide <- R_matrix_fdr
+R_matrix_fdr <- pivot_wider(R_matrix_fdr, names_from = "feat2", values_from = "fdr_sig", values_fill = NA)
+R_matrix_fdr <- data.frame(R_matrix_fdr)
+rownames(R_matrix_fdr) <- R_matrix_fdr$feat1
+R_matrix_fdr$feat1 <- NULL
+
+
+#keep R values only for significant correlations
+PR_matrix <-  PR_matrix %>%
+  mutate(R_padj = ifelse(!is.na(padj_sig), R, NA)) %>%
+  mutate(R_fdr = ifelse(!is.na(fdr_sig), R, NA))
+ 
+write_csv(PR_matrix, paste0(outdir,"/PR_matrix_", celltype, "_", date,".csv"))
+```
+
+
+#plot distribution of correlation coefficients after correction
+```{r distribution of correlation coefficients}
+adj <- PR_matrix[,c("R_padj", "R_fdr")]
+adj$n <- seq(1:length(adj$R_padj)) 
+adj <- pivot_longer(adj, cols = c("R_padj","R_fdr"), names_to = "method", values_to = "R_adj")
+
+plot_coef_dist <- ggplot(adj, aes(x = R_adj, fill = method))+
+  geom_histogram(bins = 100)+
+  ggtitle("Distribution of correlation coefficients after multiple testing correction")
+
+plot_coef_dist
+```
+
+
+
+```{r calculate number of significant neighbors per feature}
+#For each gene in feat1 (= row), count number of significant correlations
+padj_count <- rowSums(!is.na(R_matrix_padj))
+fdr_count <- rowSums(!is.na(R_matrix_fdr))
+
+#combine neighbor/correlation counts for both correction methods in one df, merging by gene name (feat1)
+neighbors_per_feature <- merge(padj_count, fdr_count, by.x = 0, by.y = 0)
+colnames(neighbors_per_feature) <- c("feat1", "padj", "fdr")
+
+#boxplot, neighbours per feature
+neighbors_long <- neighbors_per_feature %>%
+  pivot_longer(!feat1, names_to = "method", values_to = "count" )
+
+plot_neighbors <- ggplot(neighbors_long, aes(x = count, y = method, fill = method))+
+  geom_boxplot()+
+  ggtitle("Number of neighbors per feature")
+
+plot_neighbors
+
+#lineplot
+neighbor_21 <- neighbors_per_feature %>%
+  mutate(padj = replace(padj, padj > 21, 0)) %>%
+  mutate(fdr = replace(fdr, fdr > 21, 0)) %>%
+  pivot_longer(cols = c("padj", "fdr"), names_to = "method") %>%
+  group_by(method, value) %>%
+  filter(value != 0)%>%
+  tally(value)
+
+plot_neigh21 <- ggplot(neighbor_21, aes(x = value, y = n, color = method))+
+  geom_line()
+
+plot_neigh21
+```
+
+
+
+```{r}
+#histogram distribution of correlation coefficients after FDR correction (alpha = 0.05)
+
+#add row with only significant R values (fdr <= 0.05)
+FDR <- data.frame(PR_matrix) %>%
+  dplyr::select(feat1, feat2, R, fdr)%>%
+  mutate(R_fdr = ifelse(fdr <= 0.05, R, NA))
+
+#Define bins based on padjust values and add column with bin 
+FDR$col <- cut(FDR$fdr,
+               breaks = c(0.05, 0.01, 0.001, 0.0001, 0),
+               include.lowest = T,
+               right = T,
+               labels = c("FDR < 0.0001", "FDR < 0.001", "FDR < 0.01",  "FDR < 0.05"))
+
+#plot histogram of R coef colored by padjust bins
+plot_dist_fdr <- ggplot(FDR, aes(x = R_fdr, fill = col))+
+  geom_histogram(bins = 100, binwidth = 0.05, position = "identity", alpha = 0.5)+
+  theme_bw()+
+  theme(
+    panel.grid.major = element_blank(),
+    plot.title.position = "plot"
+  )+
+  labs(title = "Distribution correlation coefficients after multiple testing correction",
+       subtitle = paste0(celltype, " samples"),
+       y = "Number of correlations",
+       x = " R (spearman)",
+       fill = "Threshold")
+plot_dist_fdr
+ggsave(filename = paste0(outdir,"/figures/Distr_R_", celltype,"_",date, ".png"), plot = plot_dist_fdr, dpi = 320)
+
+#round padjust valuse and keep values below 0.1
+FDR$round_fdr <- round(FDR$fdr, digits = 5)
+FDR$round_fdr[FDR$round_fdr > 0.1] <- NA
+
+#define bins and cound how many edges are in each bin. Calculate likely number of false positives (num_fp) for each bin and add as separate column
+bins <- c(seq(0.0001, 0.01, length.out = 30), 0.02, 0.03, 0.04, 0.05, 0.1)
+fdr_fp <- data.frame()
+for (i in bins){
+  n_edges <- sum(FDR$fdr < i)
+  num_fp <- round(i*n_edges, digits = 4)
+  out <- c(i, n_edges, num_fp)
+  fdr_fp <- rbind(fdr_fp, out)
+  colnames(fdr_fp) <- c("fdr", "num_edges", "num_fp")
+}
+fdr_fp <- fdr_fp %>%
+  pivot_longer(!fdr, names_to = "edges", values_to = "count")
+
+plot_falsepos <- ggplot(fdr_fp, aes(x = fdr, y = count, color = edges))+
+  geom_line()+
+  scale_x_log10()
+
+plot_falsepos
+```
+
+
+
+```{r}
+#Subset number of correlations to consider
+#Select cutoff FDR
+# PR_matrix$fdr_sig <- ifelse(PR_matrix$fdr > 0.01, 0, PR_matrix$fdr)
+# PR_matrix$R_fdr <- PR_matrix$R
+# PR_matrix$R_fdr[PR_matrix$fdr_sig == 0] <- NA
+
+top_corr <- PR_matrix %>% 
+  mutate(R_fdr = R) %>%
+  dplyr::select(feat1, feat2, R, fdr, R_fdr) %>%
+  filter(fdr < 0.01)
+  
+```
+
+
+
+```{r}
+# FDR <- data.frame(top_corr[,c("feat1", "feat2", "R", "fdr")])
+# FDR$R_fdr <- FDR$R
+# FDR$R_fdr[FDR$fdr > 0.05] <- NA
+# 
+# FDR$col <- cut(FDR$fdr,
+#                breaks = c(0.05, 0.01, 0.001, 0.0001, 0),
+#                include.lowest = T,
+#                right = T,
+#                labels = c("fdr < 0.0001", "fdr < 0.001", "fdr < 0.01",  "fdr < 0.05"))
+# 
+# ggplot(FDR, aes(x = R_fdr, fill = col))+
+#   geom_histogram(bins = 100, binwidth = 0.01)+
+#   labs(fill = "Significance cutoff")+
+#   ggtitle("Distribution of top correlation coefficients (FDR)")
+# 
+# 
+# FDR$round_fdr <- FDR$fdr
+# FDR$round_fdr <- round(FDR$fdr, digits = 5)
+# FDR$round_fdr[FDR$round_fdr > 0.1] <- NA
+# 
+# bins <- c(seq(0.0001, 0.01, length.out = 30), 0.02, 0.03, 0.04, 0.05, 0.1)
+# fdr_fp <- data.frame()
+# for (i in bins){
+#   n_edges <- sum(FDR$fdr < i)
+#   num_fp <- round(i*n_edges, digits = 4)
+#   out <- c(i, n_edges, num_fp)
+#   fdr_fp <- rbind(fdr_fp, out)
+#   colnames(fdr_fp) <- c("fdr", "num_edges", "num_fp")
+# }
+# fdr_fp <- fdr_fp %>%
+#   pivot_longer(!fdr, names_to = "edges", values_to = "count")
+# 
+# ggplot(fdr_fp, aes(x = fdr, y = count, color = edges))+
+#   geom_line()+
+#   scale_x_log10()
+# 
+# 
+# top_genes <- top_corr[1:10, c("feat1", "feat2")]
+# genes <- unique(c(top_genes$feat1, top_genes$feat2))
+# 
+# topsearch <- data[genes,]
+# boxplot(topsearch[1:19,], log = "y")
+# 
+# 
+# R_fdr_mat <- PR_matrix[,c("feat1","feat2","R_fdr")]
+# R_topcorr <- R_fdr_mat[order(abs(R_fdr_mat$R_fdr), decreasing = T),]
+# R_topcorr$keep <- R_topcorr$R_fdr
+# R_topcorr[1:perc, "keep"] <- TRUE
+# R_topcorr$keep <- ifelse(R_topcorr$keep == 1, R_topcorr$R_fdr, 0)
+# R_topcorr <- R_topcorr[,c("feat1","feat2","keep")]
+# R_cutoff <- pivot_wider(R_topcorr, names_from = "feat2", values_from = "keep", values_fill = 0)
+# R_cutoff <- data.frame(R_cutoff)
+# rownames(R_cutoff) <- R_cutoff$feat1
+# R_cutoff$feat1 <- NULL
+# 
+# R_cutoff <- as.matrix(R_cutoff)
+# is.na(R_cutoff) <- 0
+```
+
+
+##Network construction
+```{r}
+netcorr <- top_corr[, c("feat1", "feat2","R_fdr")]
+netcorr <- netcorr[netcorr$feat1 != netcorr$feat2,]
+
+#gives number of total, positive and negative correlations used for building the networks
+net_all <- netcorr[which(netcorr$R_fdr != 0),]
+paste0("Number all significant correlations(FDR): ", length(net_all$feat1))
+
+net_pos <- netcorr[which(netcorr$R_fdr > 0),]
+paste0("Number positive correlations (FDR): ",length(net_pos$R_fdr))
+
+net_neg <- netcorr[which(netcorr$R_fdr < 0),]
+paste0("Number negative correlations (FDR): ",length(net_neg$R_fdr))
+
+
+#for positive-only network is weighted, using the correlation coefficient as edge weight
+edge_weight <- as.numeric(net_pos[,"R_fdr"])
+edge_weight_all <- as.numeric(net_all[,"R_fdr"])
+```
+
+
+#construct networks in igraph
+```{r}
+library(igraph)
+#get number of nodes in complete (all) network and network considering only positive correlations
+pos_feat <- as.numeric(length(unique(c(net_pos$feat1, net_pos$feat2))))
+edge_pos <- as.numeric(length(net_pos$feat1))
+all_feat <- as.numeric(length(unique(c(net_all$feat1, net_all$feat2))))
+edge_all <- as.numeric(length(net_all$feat1))
+
+#Unweighted network all correlations 
+net_all <- as.matrix(net_all)
+all_uw <- graph_from_edgelist(net_all[,c("feat1", "feat2")], directed = F)
+
+#Weighted network only positiv correlations 
+net_pos <- as.matrix(net_pos)
+pos_w <- graph_from_edgelist(net_pos[,c("feat1","feat2")], directed = F)
+E(pos_w)$weight <- as.numeric(net_pos[,"R_fdr"])
+
+set.seed(12)
+random_all_uw <- erdos.renyi.game(n = all_feat, p.or.m = edge_all, type = "gnm", directed = F, loops = F)
+set.seed(34)
+random_pos_uw <- erdos.renyi.game(n = pos_feat, p.or.m = edge_pos, type = "gnm", directed = F, loops = F)
+
+save.image(file = paste0(dir,"R_sessions/Network_analysis_", celltype,"_", date, ".RData"))
+```
+
+
+```{r}
+#function to extract graph properties
+get_graph_properties <- function(input_graph){
+  g <- input_graph
+  ncount <- vcount(g)
+  ecount <- ecount(g)
+  diameter <- diameter(g)
+  av_path <- average.path.length(g)
+  dens <- graph.density(g)
+  clustering <- transitivity(g, type = "undirected")
+  conn <- is.connected(g)
+  min_cut <- min_cut(g)
+  out <- data.frame(ncount, ecount, diameter, av_path, dens, clustering, conn, min_cut)
+  colnames(out) <- c("node_count", "edge_count", "diameter", "av_path_length", "density", "clustering_coef", "connected", "minimum_cut")
+  return(out)
+}
+
+#run function on all graphs, returns df with results 
+network_stats <- data_frame()
+networks <- list(pos_w, all_uw, random_all_uw, random_pos_uw)
+for (i in networks){
+  i_stats <- get_graph_properties(i)
+  network_stats <- rbind(network_stats, i_stats)
+}
+graph_name <- c("pos_w", "all_uw", "random_all_uw", "random_pos_uw")
+rownames(network_stats) <- graph_name
+
+write_csv(network_stats, paste0(outdir,"/Network_stats_", celltype, "_", date,".csv"))
+
+#print and save output table with network stats
+stat_table <- kable(network_stats, format = "html", row.names = T) %>%
+  kable_styling(full_width = T) %>%
+   column_spec(column = 1, bold = T)
+stat_table
+save_kable(stat_table, file = paste0(outdir,"/figures/Network_stats_",celltype,"_",date,".png"))
+
+#save session
+save.image(file = paste0(dir,"R_sessions/Network_analysis_", celltype,"_", date, ".RData"))
+```
+
+
+##Centrality analysis
+```{r}
+#plot degree distribution between random network and network 
+degree_pos <- data.frame(degree(pos_w), degree(random_pos_uw))
+colnames(degree_pos) <- c("pos_w", "random_pos")
+
+deg_pos <- ggplot(degree_pos, aes(x = pos_w, y = random_pos))+
+  geom_point(color = "blue", alpha = 0.5)+
+  geom_smooth(method = "lm", color = "black")+
+  labs(title = "Degree distribution",
+       subtitle = "Positive correlation Networks",
+       x = "Positive, weighted",
+       y = "Random positive")
+
+degree_all <- data.frame(degree(all_uw), degree(random_all_uw))
+colnames(degree_all) <- c("all_uw", "random_all")
+
+deg_all <- ggplot(degree_all, aes(x = all_uw, y = random_all))+
+  geom_point(color = "red", alpha = 0.5)+
+  geom_smooth(method = "lm", color = "black")+
+  labs(title = "Degree distribution",
+       subtitle = "All correlations Networks",
+       x = "All, unweighted",
+       y = "Random all")
+deg_dist <- (deg_pos + deg_all)
+deg_dist
+
+
+ggsave(filename = paste0(outdir,"/figures/Degree_distr_", celltype,"_",date, ".png"), plot = deg_dist, dpi = 320, units = "cm", width = 25, height = 15)
+```
+
+
+
+```{r}
+#calculate probability for observed degrees
+transform_degree <- function(graph){
+  alldegs <- data.frame(degree(graph))
+  colnames(alldegs) <- c("k")
+  alldegs <- alldegs %>%
+  group_by(k) %>%
+  mutate(count = n()) 
+  alldegs <- alldegs %>% mutate(P.k = count/length(alldegs$count))
+  alldegs <- alldegs[!duplicated(alldegs),]
+  return(alldegs)
+}
+
+p <- transform_degree(pos_w)
+a <- transform_degree(all_uw)
+rp <- transform_degree(random_pos_uw)
+ra <- transform_degree(random_all_uw)
+
+
+prob_plot <- ggplot()+
+  geom_qq(p, mapping = aes(sample = k, color = "positive weighted"))+
+  geom_qq(a, mapping = aes(sample = k, color = "all unweighted"))+
+  geom_qq(rp, mapping = aes(sample = k, color = "random pos unweighted"))+
+  geom_qq(ra, mapping = aes(sample = k, color = "random all unweighted"))+
+  theme_bw()+
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        plot.title.position = "plot")+
+ labs(title = "Probability plot",
+      subtitle = paste0(celltype, " samples"),
+      y = "Observed Degree (k)",
+      x = "Data quantiles",
+      colour = "Network")
+prob_plot  
+
+ggsave(filename = paste0(outdir,"/figures/prob_plot_", celltype,"_",date, ".png"), plot = prob_plot, dpi = 320)
+
+```
+
+
+#centrality analysis
+```{r get centrality metrics for each network}
+
+centralities_list <- c('degree (larger ~ central)','betweenness (larger ~ central)', 'closeness (larger ~ central)','eigenvector (larger ~ central)','eccentricity (smaller ~ central)')
+
+#constructs a list with centrality measures for each network graph
+combine_raw_centralities <- function(){
+
+  #get raw centralities
+  centrality_raw <- function(input_graph, graph_name){
+    deg <- degree(input_graph, loops = F)
+    node_n <- vcount(input_graph)
+    ecc <- 2*eccentricity(input_graph)/((node_n-1)*(node_n-2)) #scale to account for network size
+    btw <- betweenness(input_graph, directed = F, normalized = T)
+    eig <- eigen_centrality(input_graph, directed = F, scale = F)
+
+    #compute closeness, for disconnected graps compute closeness from largest conected component  
+    if(is_connected(input_graph)){
+      cls <- closeness(input_graph, normalized = T)
+    }else{
+      cl <- clusters(input_graph,mode = "weak")
+      cls <- closeness(induced.subgraph(input_graph, cl$membership ==  which.max(cl$csize)), normalized = T)
+    }
+    out <- list(deg, btw, cls, eig, ecc)
+    names(out) <- centralities_list
+    
+    #add centrality measures to input graph object
+    input_graph$degree <- out["degree (larger ~ central)"]
+    input_graph$betweeness <- out["betweenness (larger ~ central)"]
+    input_graph$closeness <- out["closeness (larger ~ central)"]
+    input_graph$eigenvector <- out["eigenvector (larger ~ central)"]
+    input_graph$eccentricity <- out["eccentricity (smaller ~ central)"]
+    
+    centr_out <- list(unname(deg), unname(btw), unname(cls), unname(eig[[1]]), unname(ecc))
+    names(centr_out) <- paste(centralities_list, graph_name, sep = ".")
+    
+    return(centr_out)
+  }
+
+  #compute centralities for each network
+  network_centralities_raw <- list()
+  network_centralities_raw <- append(network_centralities_raw, centrality_raw(pos_w, "pos_w"))
+  network_centralities_raw <- append(network_centralities_raw, centrality_raw(all_uw, "all_uw"))
+  network_centralities_raw <- append(network_centralities_raw, centrality_raw(random_pos_uw, "random_pos_uw"))
+  network_centralities_raw <- append(network_centralities_raw, centrality_raw(random_all_uw, "random_all_uw"))
+  return(network_centralities_raw)
+}
+
+network_centralities_raw <- combine_raw_centralities()
+
+
+#transform data for plotting
+#convert list into data frame allowing different size vectors
+df_cent <- map_dfr(network_centralities_raw, ~as.data.frame(t(.)))
+df_cent <- as.data.frame(t(df_cent))
+colnames(df_cent) <- names(network_centralities_raw)
+
+#convert to long format and split centrality metric and network into separate variables
+df2 <- stack(df_cent)
+df2$ind <- as.character(df2$ind)
+df3 <- str_split(df2$ind, pattern = "\\.")
+df_cent_long <- data.frame(df2$values, sapply(df3, "[[", 1), sapply(df3, "[[", 2))
+colnames(df_cent_long) <- c("Values", "Centrality_measure", "Network")
+
+#plot centrality measures for each network
+plot_raw_centrality <- ggplot(df_cent_long, aes(y = Values, x = Network, fill = Network))+
+  geom_boxplot(notch = T)+
+  scale_x_discrete(labels = c("all unweighted", "positive weighted","random all unweighted", "random pos unweighted"))+
+  scale_fill_discrete(labels = c("all unweighted", "positive weighted","random all unweighted", "random pos unweighted"))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90),
+        axis.title.x.bottom = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
+        plot.title.position = "plot",
+        legend.position = "none")+
+  labs(title = paste0( "Centrality metrics for all networks"),
+       subtitle = paste0(celltype, " samples"),
+       y = "Centrality metrics")+
+  facet_wrap(~Centrality_measure, nrow = 3, ncol = 2, scales = "free_y")
+plot_raw_centrality
+
+ggsave(filename = paste0(outdir,"/figures/raw_centralities_", celltype,"_",date, ".png"), plot = plot_raw_centrality, dpi = 320, units = "cm", height = 20, width = 15)
+
+#save session
+save.image(file = paste0(dir,"R_sessions/Network_analysis_", celltype,"_", date, ".RData"))
+```
+
+
+#correlation of centralities
+```{r}
+#get centralities for individual networks
+pos_centr <- df_cent %>%
+  dplyr::select(contains("pos_w"))
+
+all_centr <- df_cent %>%
+  dplyr::select(contains(".all_uw"))
+
+rank_centrality_metrics <- function(df){
+  #select centralities to be ranked in ascending mode (all except eccentricity)
+  asc_metrics <- c("degree", "betweenness", "closeness", "eigenvector")
+  df_asc <- dplyr::select(df, contains(asc_metrics))
+  
+  #rank values in each column, ascending
+  rank <- list()
+  for (i in 1:ncol(df_asc)){
+    asc <- df_asc[,i]
+    asc_r <- dense_rank(asc)
+    rank[[paste0(asc_metrics[i])]] <- asc_r
+    i <- i+1
+  }
+  
+  #rank values for eccentricity descending 
+  ecc <- dplyr::select(df, contains("eccentricity"))[,1]
+  ecc_r <- dense_rank(-ecc)
+  ecc <- data.frame(ecc, ecc_r)
+  rank[["eccentricity"]] <- ecc$ecc_r
+
+  #transform list with ranked values back to dataframe
+  df_rank  <-  as.data.frame(matrix(unlist(rank), nrow=length(unlist(rank[1]))))
+  colnames(df_rank) <- c("degree.rank","betweenness.rank","closeness.rank","eigenvector.rank","eccentricity.rank")
+  
+  #add column with median rank across the five other centralities (= rowwise median)
+  df_rank <- df_rank %>%
+    rowwise() %>%
+    dplyr::mutate(median.rank = median(c_across(1:5)))
+  return(df_rank)
+}
+
+pos_rank <- rank_centrality_metrics(pos_centr)
+all_rank <- rank_centrality_metrics(all_centr)
+
+
+pos_rank_corr <- rcorr(as.matrix(pos_rank), type = "spearman")
+pos_plot <- corrplot::corrplot(corr = pos_rank_corr$r,
+                               type = "full",
+                               method = "color",
+                               addCoef.col = "black",
+                               diag = F,
+                               order = "original",
+                               tl.col = "black",
+                               title = "Pos, weighted")
+
+all_rank_corr <- rcorr(as.matrix(all_rank), type = "spearman")
+all_plot <- corrplot::corrplot(corr = all_rank_corr$r,
+                               type = "full",
+                               method = "color",
+                               addCoef.col = "black",
+                               diag = F,
+                               order = "original",
+                               tl.col = "black",
+                               title = "All, unweighted")
+```
+
+
+##Modularity Analysis
+```{r}
+detach(package:igraph)
+library("reticulate")
+module <- py_available() && reticulate::py_module_available("leidenalg") && reticulate::py_module_available("igraph")
+library(leiden)
+
+pos_w_comm <- leiden(pos_w, partition_type = "ModularityVertexPartition", 
+                     weights = edge_weight, 
+                     seed = 56,
+                     n_iterations = 4)
+table(pos_w_comm)
+pos_w_table <- data.frame(table(pos_w_comm))
+
+pos_comm <- leiden(pos_w, partition_type = "ModularityVertexPartition", seed = 56)
+table(pos_comm)
+pos_uw_table <- data.frame(table(pos_comm))
+
+rdm_pos_comm <- leiden(random_pos_uw,  partition_type = "ModularityVertexPartition", seed = 56)
+table(rdm_pos_comm)
+rdm_pos_table <- data.frame(table(rdm_pos_comm))
+
+all_comm <- leiden(all_uw, partition_type = "ModularityVertexPartition", seed = 56)
+table(all_comm)
+all_uw_table <- data.frame(table(all_comm))
+
+rdm_all_comm <- leiden(random_all_uw,  partition_type = "ModularityVertexPartition", seed = 56)
+table(rdm_all_comm)
+rdm_all_table <- data.frame(table(rdm_all_comm))
+detach(package:leiden)
+
+```
+
+
+#plot sizes of top modules for different networks
+```{r}
+pos_w_table$Network <- "Positive weighted"
+colnames(pos_w_table) <- c("Module", "Features","Network")
+pos_uw_table$Network <- "Positive unweighted"
+colnames(pos_uw_table) <- c("Module", "Features","Network")
+all_uw_table$Network <- "All unweighted"
+colnames(all_uw_table) <- c("Module", "Features","Network")
+rdm_pos_table$Network <- "Random Positive"
+colnames(rdm_pos_table) <- c("Module", "Features","Network")
+rdm_all_table$Network <- "Random All"
+colnames(rdm_all_table) <- c("Module", "Features","Network")
+
+module_sizes <- bind_rows(pos_w_table, pos_uw_table, all_uw_table, rdm_pos_table, rdm_all_table)
+module_sizes$Module <- as.factor(module_sizes$Module)
+module_sizes <- module_sizes %>%
+  filter(Module %in% c(1:9))
+
+ggplot(module_sizes, mapping = aes(x = Network, y = Features, fill = Module))+
+  geom_col()+
+  theme_bw()+
+  labs(title = paste0(celltype, " - Module size"),
+       x = "Module",
+       y = "Genes",
+       color = "Network")
+
+module_size <- ggplot(module_sizes, mapping = aes(x = Module, y = Features, group=Network, color = Network))+
+  geom_point()+
+  geom_path()+
+  #scale_color_discrete(labels = c(""))
+  theme_bw()+
+  theme(
+    panel.grid = element_blank(),
+    plot.title.position = "plot"
+  )+
+  labs(title = "Module size",
+       subtitle = paste0(celltype, " samples"),
+       x = "Module",
+       y = "Genes",
+       color = "Network")
+module_size
+
+ggsave(filename = paste0(outdir,"/figures/Module_size_", celltype,"_",date, ".png"), plot = module_size, dpi = 320)
+
+
+
+mod_size_table <- module_sizes %>%
+  group_by(Network) %>%
+  dplyr::filter(Module == c("1","2","3","4","5","6"))
+mod_size_table <- pivot_wider(mod_size_table, id_cols = Module, names_from = Network, values_from = Features)
+
+table <- kable(mod_size_table, format = "html", row.names = F) %>%
+  kable_styling(full_width = T) %>%
+  column_spec(column = 1, bold = T)
+table
+
+#save session
+save.image(file = paste0(dir,"R_sessions/Network_analysis_", celltype,"_", date, ".RData"))
+```
+
+
+#Get genes for first x modules per network
+```{r}
+library(org.Mm.eg.db)
+library(AnnotationDbi)
+
+#define which modules should be selected
+x <- 6
+
+#extracts name of genes in to x modules, takes as input the results from the partioning results from the leiden modularity analysis (modules) and the igraph object of the respective Network (G)
+get_module_genes <- function(modules, G){
+  
+  module_genes <- list()
+  
+  #select rownumber of module elements and selects responding gene id from igraph vertex list
+  for (i in c(1:x)) {
+  idx <- which(modules == i)
+  genes <- igraph::V(G)$name[idx]
+  #genes <- mapIds(org.Mm.eg.db, colum = "SYMBOL", keys = genes, keytype = "ENSEMBL", multiVals = "first" )
+  module_genes <- append(module_genes, list(genes))
+  i <- i+1
+  }
+  return(module_genes)
+}
+
+modgene_pos_w <- get_module_genes(pos_w_comm, pos_w)
+modgene_pos_uw <- get_module_genes(pos_comm, pos_w)
+modgene_all_uw <- get_module_genes(all_comm, all_uw)
+
+```
+
+
+```{r}
+library(enrichR)
+
+#genes set collections fro which analysis will be performed
+dbs <- c('GO_Biological_Process_2021', 'GO_Cellular_Component_2021', 'KEGG_2019_Mouse','DisGeNET','Transcription_Factor_PPIs')
+
+#runs gene set analysis for genes up top 6 modules, takes as input a list with genes in the individual modules (output from "get_module_genes()")
+enrichr_module <- function(modgenes){
+  enrichr_output <- list()
+  for (i in 1:length(modgenes)) {
+  genes <- modgenes[[i]]
+  enrichr_output[[paste0("Module_",i)]] <- enrichr(genes, dbs)
+  i <- i+1
+  }
+  return(enrichr_output)
+}
+
+enrichr_pos_w <- enrichr_module(modgene_pos_w)
+enrichr_pos_uw <- enrichr_module(modgene_pos_uw)
+enrichr_all_uw <- enrichr_module(modgene_all_uw)
+
+
+#Keep only the significantly enriched terms (fdr < 0.01), takes as in put list with enrichr results (output "enrichr_module()")
+sig_enrichr_results <- function(input_enr){
+  
+  for (i in 1:length(input_enr)) {
+  input_enr[[i]][1]$GO_Biological_Process_2021 <- input_enr[[i]][1]$GO_Biological_Process_2021 %>%
+      filter(Adjusted.P.value <= 0.01)
+  input_enr[[i]][2]$GO_Cellular_Component_2021 <- input_enr[[i]][2]$GO_Cellular_Component_2021 %>%
+      filter(Adjusted.P.value <= 0.01)
+  input_enr[[i]][3]$KEGG_2019_Mouse <- input_enr[[i]][3]$KEGG_2019_Mouse %>%
+      filter(Adjusted.P.value <= 0.01)
+  input_enr[[i]][4]$DisGeNET <- input_enr[[i]][4]$DisGeNET %>%
+      filter(Adjusted.P.value <= 0.01)
+  input_enr[[i]][5]$Transcription_Factor_PPIs <- input_enr[[i]][5]$Transcription_Factor_PPIs %>%
+      filter(Adjusted.P.value <= 0.01)
+  }
+   return(input_enr)
+}
+  
+enrichr_pos_w <- sig_enrichr_results(enrichr_pos_w)
+enrichr_pos_uw <- sig_enrichr_results(enrichr_pos_uw)
+enrichr_all_uw <- sig_enrichr_results(enrichr_all_uw)
+```
+
+
+#plot number of term by module
+```{r}
+#plot number of sig. enriched terms by module, takes as input list with enrichr results (output "sig_enrich_results()")
+plot_sig_terms <- function(input){
+ 
+  sig_terms <- data.frame("1","2","3")
+  
+  #get number of sig. enriched terms (as rownumber) by genesets for each Module
+  for(i in 1:length(input)){
+  obs <- as.numeric(nrow(input[[i]][[1]]))
+  a <- c("GO_BP", i, obs)
+  obs <- as.numeric(nrow(input[[i]][[2]]))
+  b <- c("GO_CC", i, obs)
+  obs <- as.numeric(nrow(input[[i]][[3]]))
+  c <- c("KEGG", i, obs)
+  obs <- as.numeric(nrow(input[[i]][[4]]))
+  d <- c("DisGeNET", i, obs)
+  obs <- as.numeric(nrow(input[[i]][[5]]))
+  e <- c("TF_PPI", i, obs)
+  
+  sig_terms <- rbind(sig_terms, a, b, c, d, e)
+  i <- i+1
+ }
+  sig_terms <- sig_terms[-1,]
+  colnames(sig_terms) <- c("Term", "Module", "Count")
+  sig_terms$Count <- as.numeric(sig_terms$Count)
+  
+  plot <- ggplot(sig_terms, aes(x = Module, y = Count, fill = Term))+
+    geom_col(position = position_dodge(), width = 0.6)+
+    theme_bw()
+  
+ return(plot)
+}  
+
+p1 <- plot_sig_terms(enrichr_pos_w) + ggtitle("Sig. Terms in modules, positive weighted")
+p2 <- plot_sig_terms(enrichr_pos_uw) + ggtitle("Sig. Terms in modules, positive unweighted")
+p3 <- plot_sig_terms(enrichr_all_uw) + ggtitle("Sig. Terms in modules, all unweighted")
+(p1 + p2 + p3)
+
+```
+
+
+#reduce redundant GO terms to parent term 
+```{r}
+
+#Uses rrvgo package to summarize GO terms based on . Takes as input list with enrichr results (output "sig_enrichr_results()")
+
+reduce_GO_terms <- function(input, module){
+require(rrvgo)
+require(org.Mm.eg.db)  
+  #subset enrichr output for GO term
+    GO_BP <- input[[module]]$GO_Biological_Process_2021$Term
+  
+ #subset Go term string to get GO id 
+    GO_BP_ID <- stringr::str_sub(GO_BP, start = -11, end = -2)
+ 
+     #Assigned weighted score to each GO term. rrvgo uses highest value as best score. therefore p-values should  be transformed using -1*log(p), If scores are not used, terms are collapsed by size.
+    #scores_BP <- input[[module]]$GO_Biological_Process_2021$Combined.Score
+    #names(scores_BP) <- GO_BP_ID
+  
+    #calculate similarity matrix based on Jiang similarity calculation
+    simMatrix_BP <- calculateSimMatrix(GO_BP_ID,
+                                  orgdb = "org.Mm.eg.db",
+                                  ont = "BP",
+                                  method = "Rel")
+  
+    #output dataframe with assigned parent GO terms
+    red_terms_BP <- reduceSimMatrix(simMatrix = simMatrix_BP,
+                                threshold = 0.7,
+                                orgdb = "org.Mm.eg.db")
+    plot_GO_BP <- treemapPlot(red_terms_BP, size = "size")
+    
+    input[[module]][paste0("reduced_GOterms_BP")] <- list(red_terms_BP)
+
+  #reduce GO terms for cellular components
+    GO_CC <- input[[module]]$GO_Cellular_Component_2021$Term
+    GO_CC_ID <- stringr::str_sub(GO_CC, start = -11, end = -2)
+    #names(scores_CC) <- GO_CC_ID
+  
+    simMatrix_CC <- calculateSimMatrix(GO_CC_ID,
+                                  orgdb = "org.Mm.eg.db",
+                                  ont = "CC",
+                                  method = "Rel")
+  
+    red_terms_CC <- reduceSimMatrix(simMatrix = simMatrix_CC,
+                                threshold = 0.7,
+                                orgdb = "org.Mm.eg.db")
+    plot_GO_CC <- treemapPlot(red_terms_CC, size = "size")
+    
+    input[[module]][paste0("reduced_GOterms_CC")] <- list(red_terms_CC)
+    
+  return(input)
+}
+
+
+enrichr_pos_w <- reduce_GO_terms(enrichr_pos_w, "Module_1")
+treemapPlot(enrichr_pos_w$Module_1$reduced_GOterms_BP)
+treemapPlot(enrichr_pos_w$Module_1$reduced_GOterms_CC)
+
+enrichr_pos_w <- reduce_GO_terms(enrichr_pos_w, "Module_2")
+treemapPlot(enrichr_pos_w$Module_2$reduced_GOterms_BP, size = "score")
+treemapPlot(enrichr_pos_w$Module_2$reduced_GOterms_CC, size = "score")
+
+enrichr_pos_w <- reduce_GO_terms(enrichr_pos_w, "Module_3")
+treemapPlot(enrichr_pos_w$Module_3$reduced_GOterms_BP, size = "score")
+treemapPlot(enrichr_pos_w$Module_3$reduced_GOterms_CC, size = "score")
+
+enrichr_pos_w <- reduce_GO_terms(enrichr_pos_w, "Module_4")
+treemapPlot(enrichr_pos_w$Module_4$reduced_GOterms_BP, size = "score")
+treemapPlot(enrichr_pos_w$Module_4$reduced_GOterms_CC, size = "score")
+
+enrichr_pos_w <- reduce_GO_terms(enrichr_pos_w, "Module_5")
+treemapPlot(enrichr_pos_w$Module_5$reduced_GOterms_BP, size = "score")
+treemapPlot(enrichr_pos_w$Module_5$reduced_GOterms_CC, size = "score")
+
+```
+
+
+#plot top 15 enriched terms by module
+```{r}
+library(enrichR)
+
+#Generates barlots showing the top 15 GO or KEGG terms per module. Also summarizes results from enrichr analysis in single table. Takes as input a list of enrichr results (output "sig_enrichr_results") and a character string with the network name
+
+plot_enrichr_by_module <- function(input, network_name){
+  plot_list <- list()
+
+  #bar plots for top 15 (or less) enriched terms by module
+  for (i in 1:length(input)) {
+    combTerms <- rbind(input[[i]]$GO_Biological_Process_2021,
+                       input[[i]]$GO_Cellular_Compartment_2021,
+                       input[[i]]$KEGG_2019_Mouse)
+    combTerms <- combTerms[order(combTerms$Combined.Score, decreasing = F),]
+    max <- ifelse(length(combTerms$Term) > 20, 20, length(combTerms$Term))
+    combTerms <- combTerms[1:max,]
+    plot_list[[i]] <- plotEnrich(combTerms, 
+           y = "Count",
+           numChar = 55,
+           orderBy = "Combined.Score",
+           title = paste0(celltype , " - Module ", i))
+    print(plot_list[[i]])
+    i <- i+1
+  }
+  return(plot_list)
+}
+
+enrich_plot_pos_w <- plot_enrichr_by_module(enrichr_pos_w, "Positive weighted")
+enrich_plot_all_uw <- plot_enrichr_by_module(enrichr_all_uw, "All unweighted") 
+enrich_plot_pos_uw <- plot_enrichr_by_module(enrichr_pos_uw, "Positive unweighted")
+
+#combines plots of top enriched terms for Modules 1-6 in plot grid. Takes as input list with enrichr plots from previous function and a character string with the network name.
+print_enrichr_plots <- function(input, name){
+  p1 <- input[[1]]
+  p2 <- input[[2]]
+  p3 <- input[[3]]
+  p4 <- input[[4]]
+  p5 <- input[[5]]
+  p6 <- input[[6]]
+  layout <- "
+  ABC
+  DEF
+  "
+  plot <- p1 + p2 + p3+ p4 + p5 + p6 + plot_layout(design = layout) + plot_annotation(
+    title = paste0(celltype, " - ", name),
+    subtitle = "Top 15 enriched terms (FDR < 0.01) by module")
+  
+  ggsave(filename = paste0(outdir,"/figures/EnrichedTerms_",name,"_",celltype,"_",date,".png"), plot = plot, dpi = 320, units = "cm", width = 60, height = 30)
+  return(plot)
+}
+
+print_enrichr_plots(enrich_plot_pos_w, "Positive weighted")
+print_enrichr_plots(enrich_plot_all_uw, "All unweighted")
+print_enrichr_plots(enrich_plot_pos_uw, "Positive unweighted")
+```
+
+
+```{r}
+plot_M1 <- rbind(enrichr_pos_w$Module_1$GO_Biological_Process_2021, enrichr_pos_w$Module_1$KEGG_2019_Mouse)
+plot_M1 <- plot_M1[order(plot_M1$Combined.Score, decreasing = F),]
+plot_M1 <- plot_M1 %>%
+  mutate(Gene_Count = as.numeric(str_extract(plot_M1$Overlap, "^[^/]+")))
+plot_M1 <- plot_M1[1:20,]
+
+ggplot(plot_M1, aes(x = Gene_Count, y = Term, fill = Adjusted.P.value))+
+  geom_point()
+```
+
+
+#Intersect modules with differentially expressed genes
+```{r}
+#load files with sig. differentially expressed genes (Fdr < 0.01), uses output file from "plots_DEGanalysis" script
+CJD <- read.csv(paste0(dir,"result_files/DESeq/CJD_DEGs.csv"), stringsAsFactors = T, sep = ",")
+FFI <- read.csv(paste0(dir,"result_files/DESeq/FFI_DEGs.csv"), stringsAsFactors = T, sep = ",")
+
+#select cell type and find shared genes
+DEG_CJD <- CJD %>% filter(Celltype == celltype) %>% dplyr::select(symbol)
+DEG_FFI <- FFI %>% filter(Celltype == celltype) %>% dplyr::select(symbol)
+shared_DEGs <- intersect(DEG_FFI$symbol, DEG_CJD$symbol)
+
+#intersect genes in selected modules with differentially expressed genes by disease. Takes as input list with genes by module (output "get_module_genes()") and data frame with DEGs
+overlay_DEGs_in_modules <- function(modgenes, DEG_list){
+  DEGs <- list()
+  for (i in 1:length(modgenes)) {
+    genes <- modgenes[[i]]
+    DEGs[[paste0("Module_",i)]] <- c(intersect(genes, DEG_list))
+    i <- i+1
+  }
+  return(DEGs)
+}
+
+FFI_DEGs_modules <- overlay_DEGs_in_modules(modgene_pos_w, DEG_FFI$symbol)
+CJD_DEGs_modules <- overlay_DEGs_in_modules(modgene_pos_w, DEG_CJD$symbol)
+
+
+intersect_table <- function(input){
+  max_len <- max(lengths(input)) #get length of longest intersection
+  df <- data.frame(t(do.call(cbind.data.frame, c(lapply(input, function(x) 
+               c(x, rep("", max_len - length(x)))), stringsAsFactors = FALSE)))) #combine list elements in dataframe with length max_len
+  df <- df %>% unite(Shared_genes, everything(), sep = " / ", remove = T, na.rm = T) #collapse all gene names into one column, separated by ","
+  df$count <- as.vector(lengths(input)) #add column with count of genes in intersection
+  df <- df[df$count != 0,] #remove empty intersections
+  #create output table 
+  table <- kable(df, format = "html", row.names = T) %>%
+  kable_styling(full_width = T) %>%
+   column_spec(column = 1, bold = T)
+  
+  return(table)
+}
+
+FFI_table <- intersect_table(FFI_DEGs_modules)
+FFI_table
+
+CJD_table <- intersect_table(CJD_DEGs_modules)
+CJD_table
+
+#plot overlap of genes in modules between the two diseases
+library(UpSetR)
+comb_DEGs <- append(FFI_DEGs_modules, CJD_DEGs_modules)
+comb_DEGs <- append(comb_DEGs, list(shared_DEGs))
+names(comb_DEGs) <- c("FFI_M1","FFI_M2","FFI_M3","FFI_M4","FFI_M5","FFI_M6","CJD_M1","CJD_M2","CJD_M3","CJD_M4","CJD_M5","CJD_M6", "shared_DEGs")
+plot <- UpSetR::upset(fromList(comb_DEGs), 
+                      nsets = 13,
+                      mainbar.y.label = "DEGs per module",
+                      text.scale = 1.5,
+                      point.size = 3)
+plot
+```
+
+
+#export files for cytoscape plotting
+```{r}
+#export network files from igraph for plotting in cytoscape
+library(igraph)
+
+#Creates a data frame of all vertices in the network and adds a column specifying module membership (for modules 1 to 6, genes not included in the first 6 modules are NA). Takes as input edgelist extracted from i graph object and list of genes in modules (output "get_module_genes()")
+assign_Module_membership <- function(edgelist, modgene_list){
+  nodes <- edgelist$vertices
+  df_module <- data.frame(name = character(0), module = numeric(0))
+  modgene_list <- modgene_pos_w
+
+  for (i in 1:length(modgene_list)) {
+    name <- modgene_pos_w[[i]]
+    module <- rep(i, length(name))
+    df <- data.frame(name = c(name), module = c(module))
+    df_module <- rbind(df_module, df)
+    i <- i+1
+  }
+  
+  nodelist <- merge(nodes, df_module, all = T)
+  return(nodelist)
+}
+
+#export edgelist with weights and dataframe with nodes and module membership
+pos_w_edgelist <- igraph::get.data.frame(pos_w, what = c("both"))
+write_csv(data.frame(pos_w_edgelist$edges), paste0(outdir,"/pos_w_edgelist_", celltype, "_", date, ".csv"))
+
+pos_w_nodes <- assign_Module_membership(pos_w_edgelist, modgene_pos_w)
+write_csv(pos_w_nodes, paste0(outdir,"/pos_w_nodes_", celltype, "_", date, ".csv"))
+
+all_uw_edgelist <- igraph::get.data.frame(all_uw, what = c("both"))
+write_csv(all_uw_edgelist$edges,  paste0(outdir,"/all_uw_edgelist_", celltype, "_",date, ".csv"))
+
+all_uw_nodes <- assign_Module_membership(all_uw_edgelist, modgene_all_uw)
+write_csv(all_uw_nodes, paste0(outdir,"/all_uw_nodes_", celltype, "_",date, ".csv"))
+
+#get number of DEGs for each module
+DEG_mod_tbl <- pos_w_nodes_annot %>%
+  filter(disease != "neither") %>%
+  group_by(module, disease) %>%
+  summarise(n = n())
+```
+
+
+#Annotate node list for pos_w network with centralitis
+```{r}
+#creates a second data frame showing all vertices in the network inclduing column showing which genes were found to be sig. differentially expressed in DEseq analysis, log2 fold change and FDR for all gene in each disease. Additonally, centrality metrics are used to indicate potential hub genes by selecting top 5 most central genes per modules for centralities degree, betweeness 
+library(igraph)
+pos_w_nodes_annot <- pos_w_nodes
+
+#add direction of fold change for genes on node list
+FFI_stats <- read.csv(paste0(dir, "result_files/DESeq/FFI_DESeq_res_all.csv"))
+FFI_stats <- FFI_stats %>% 
+  filter(Celltype == celltype) %>%
+  filter(symbol %in% pos_w_nodes_annot$name) %>%
+  dplyr::select(name = symbol, lfc_FFI = sLFC, fdr_FFI = padj)
+pos_w_nodes_annot <- merge(pos_w_nodes_annot, FFI_stats, all.x = T, all.y = F)
+
+CJD_stats <- read.csv(paste0(dir, "result_files/DESeq/CJD_DESeq_res_all.csv"))
+CJD_stats <- CJD_stats %>% 
+  filter(Celltype == celltype) %>%
+  filter(symbol %in% pos_w_nodes_annot$name) %>%
+  dplyr::select(name = symbol, lfc_CJD = sLFC, fdr_CJD = padj) 
+pos_w_nodes_annot <- merge(pos_w_nodes_annot, CJD_stats, all.x = T, all.y = F)
+
+pos_w_nodes_annot <- pos_w_nodes_annot %>% distinct(name, .keep_all = T)
+
+#add column stating if gene is differentially expressed (fdr < 0.05) in one or both diseases
+pos_w_nodes_annot <- pos_w_nodes_annot %>%
+  mutate(disease = case_when(fdr_CJD < 0.05 & fdr_FFI < 0.05 ~ "both",
+                             fdr_CJD < 0.05 & fdr_FFI > 0.05 ~ "CJD",
+                             fdr_CJD > 0.05 & fdr_FFI < 0.05 ~ "FFI",
+                             TRUE ~ "neither"))
+
+# #extract hub genes =top 1% genes with highest degree in network
+# deg <- data.frame(igraph::degree(pos_w, v = V(pos_w), loops = F))
+# colnames(deg) <- "degree"
+# hub_dgr <- merge(pos_w_nodes, deg, by.x = "name", by.y = 0)
+# hub_genes <- hub_dgr %>%
+#   filter(!is.na(module))%>%
+#   slice_max(order_by = degree, n = 0.01*length(deg[,1]))
+# hub_genes <- hub_genes[,c("name", "degree")]
+# pos_w_nodes_annot <- left_join(pos_w_nodes_annot, hub_genes, by = "name")
+# 
+# btw <- data.frame(igraph::betweenness(pos_w, v = V(pos_w), directed = F, normalized = T))
+# colnames(btw) <- "betweenness"
+# hub_btw <- merge(pos_w_nodes, btw, by.x = "name", by.y = 0)
+# hub_genes <- hub_btw %>%
+#   #group_by(module) %>%
+#   filter(!is.na(module))%>%
+#   slice_max(order_by = betweenness, n = 0.01*length(btw[,1]))
+# hub_genes <- hub_genes[,c("name", "betweenness")]
+# pos_w_nodes_annot <- left_join(pos_w_nodes_annot, hub_genes, by = "name")
+# 
+# eigen <- data.frame(igraph::eigen_centrality(pos_w, directed = F, scale = T))
+# colnames(eigen) <- "eigenvector"
+# hub_eig <- merge(pos_w_nodes, eigen, by.x = "name", by.y = 0)
+# hub_genes <- hub_eig %>%
+#   dplyr::select("name","module","eigenvector") %>%
+#   #group_by(module) %>%
+#   filter(!is.na(module))%>%
+#   slice_max(order_by = eigenvector, n = 0.01*length(eigen[,1])) %>%
+#   mutate(eigenvector = round(eigenvector, digits = 6))
+# hub_genes <- hub_genes[,c("name", "eigenvector")]
+# pos_w_nodes_annot <- left_join(pos_w_nodes_annot, hub_genes, by = "name")
+
+write_csv(pos_w_nodes_annot, paste0(outdir,"/pos_w_nodes_annot_", celltype, "_", date, ".csv"))
+
+hub_genes_df <- pos_w_nodes_annot %>%
+  filter(!is.na(degree)|!is.na(betweenness)|!is.na(eigenvector))
+
+write_csv(hub_genes_df, paste0(outdir,"/hub_genes_", celltype, "_", date, ".csv"))
+
+#identify hub gene for each module (= gene with highest degree centrality in each module)
+#get node centrality
+deg <- data.frame(igraph::degree(pos_w, v = V(pos_w), loops = F))
+colnames(deg) <- "degree"
+hub_dgr <- merge(pos_w_nodes, deg, by.x = "name", by.y = 0)
+#get top 1% genes with highest degree centrality for each module
+mod_hub_dgr <- hub_dgr %>%
+  filter(!is.na(module))%>%
+  group_by(module)%>%
+  arrange(module, desc(degree))%>%
+  top_frac(n = 0.01, degree)%>%
+  ungroup()%>%
+  dplyr::select(-module)
+
+#calculate mean degree centrality for each module
+mean_dgr_cent <- hub_dgr %>%
+  group_by(module)%>%
+  filter(!is.na(module))%>%
+  summarise(mean(degree))
+
+#calculate node betweenness centrality (normalized to network size)
+btw <- data.frame(igraph::betweenness(pos_w, v = V(pos_w), directed = F, normalized = T))
+colnames(btw) <- "betweenness"
+hub_btw <- merge(pos_w_nodes, btw, by.x = "name", by.y = 0)
+mod_hub_btw <- hub_btw %>%
+  filter(!is.na(module))%>%
+  group_by(module)%>%
+  arrange(module, desc(betweenness))%>%
+  top_frac(n = 0.01, betweenness)%>%
+  ungroup()%>%
+  dplyr::select(-module)
+
+#add top centrality genes to node list
+pos_w_nodes_annot <- pos_w_nodes_annot %>%
+  left_join(mod_hub_dgr, by = "name")%>%
+  left_join(mod_hub_btw, by = "name")
+
+write_csv(pos_w_nodes_annot, paste0(outdir,"/pos_w_nodes_annot_", celltype, "_", date, ".csv"))
+
+
+#get top centrality genes that are also differentially expressed
+hub_genes_df <- pos_w_nodes_annot %>%
+  filter(!is.na(degree)|!is.na(betweenness))%>%
+  filter(disease != "neither")
+
+write_csv(hub_genes_df, paste0(outdir,"/hub_genes_", celltype, "_", date, ".csv"))
+
+```
+
+
+#get list of DEGs with functional annotation included in network 
+```{r}
+gene_GO <- pos_w_nodes_annot %>%
+  filter(disease != "neither") %>%
+  dplyr::select(name, disease, module)
+
+#get df of results for GO and KEGG enrichment analysis for all modules
+BP <- do.call("rbind", sapply(enrichr_pos_w, "[", 1))
+KEGG <- do.call("rbind", sapply(enrichr_pos_w, "[", 3))
+gs <- rbind(BP, KEGG)
+gs <- gs %>% dplyr::select("Term", "Genes")
+
+l_gs <- list()
+for (i in 1:length(gene_GO$name)) {
+  gene <- toupper(gene_GO$name[i])
+  pat <- paste0(paste0(gene, ";"),"|",paste0(";",gene))
+  idx <- grep(pattern = pat, gs$Genes)
+  l_gs[[paste0(gene)]] <- gs$Term[idx]
+  i <- i+1
+}
+
+names(l_gs) <- str_to_title(names(l_gs))
+
+list_to_df <- function(input){
+  max_len <- max(lengths(input)) #get length of longest intersection
+  df <- data.frame(t(do.call(cbind.data.frame, c(lapply(input, function(x) 
+               c(x, rep("", max_len - length(x)))), stringsAsFactors = FALSE))))
+  return(df)
+}
+df_gs <- list_to_df(l_gs)
+
+DEG_gs <- merge(gene_GO, df_gs, by.x = "name", by.y = 0)
+DEG_gs <- DEG_gs %>% filter(X1 != "")
+
+write_csv(DEG_gs, paste0(outdir,"/DEG_w_genesets_", celltype, "_", date, ".csv"))
+```
+
+
+#get node list annotate with results from TF enrichr analysis
+```{r}
+#Get TF annotation from enrichR results
+TF_by_module <- function(enrichr_list){
+  TF_res <- list()
+  
+  for (i in 1:length(enrichr_list)) {
+    df <- data.frame(enrichr_list[[i]]$Transcription_Factor_PPIs$Term)
+    df$module <- rep(i, length(df[,1]))
+    df$targets <- enrichr_list[[i]]$Transcription_Factor_PPIs$Genes
+    colnames(df) <- c("TF", "Module", "Target")
+    TF_res[[paste0(i)]] <- df
+    i <- i+1
+  }
+
+  TF_module <- data.frame(TF_res[[1]])
+  for (i in 2:length(TF_res)) {
+    df <- TF_res[[i]]
+    TF_module <- rbind(TF_module, df)
+    i <- i+1
+  }
+  
+  return(TF_module)
+}
+TF_module_posw <- TF_by_module(enrichr_pos_w)
+
+#add TF Terms to annotated node list
+TF_module_posw$TF <- str_to_title(TF_module_posw$TF)
+pos_w_nodes_TF <- pos_w_nodes_annot
+pos_w_nodes_TF$TF <- ifelse(pos_w_nodes_TF$name %in% TF_module_posw$TF, "TF", NA)
+
+for (i in 1:length(TF_module_posw$TF)) {
+  tf_set <- TF_module_posw[i,]
+  TF_genes <- str_to_title(unlist(strsplit(tf_set[[3]], split = ";")))
+  TF_name <- paste0(tf_set$TF,"_M",tf_set$Module)
+  pos_w_nodes_TF$new <- ifelse(pos_w_nodes_TF$name %in% TF_genes, TF_name, NA)
+  names(pos_w_nodes_TF)[names(pos_w_nodes_TF) == "new"] <- TF_name
+  i <-  i+1
+}
+
+write.csv(pos_w_nodes_TF, file = paste0(outdir,"/posw_TF_", celltype,"_", date, ".csv"))
+
+TF_deg <- pos_w_nodes_TF %>%
+  filter(disease != "neither")%>%
+  dplyr::select(matches("_M.*"))
+gene_ct <- c()
+for (i in 1:length(TF_deg)){
+  ct <- sum(!is.na(TF_deg[,i]))
+  gene_ct <- c(gene_ct, ct)
+  i <- i+1
+}
+
+TF_module_posw$num_deg <- gene_ct
+TF_sel <- filter(TF_module_posw,num_deg > 1) 
+
+degs <- pos_w_nodes_TF %>%
+  filter(disease != "neither")%>%
+  dplyr::select(name)%>%
+  pull()
+
+sel_deg <- c()
+for (i in 1:length(TF_sel$TF)) {
+  TF_g <- str_to_title(unlist(strsplit(TF_sel[[i,3]], split = ";")))
+  g <- intersect(TF_g, degs)
+  g <- str_flatten(g, collapse = " / ")
+  sel_deg <- c(sel_deg, g)
+  i <- i+1
+}
+TF_sel$deg <- sel_deg
+
+write.csv(TF_sel, file = paste0(outdir,"/TF_DEGs_", celltype, "_", date, ".csv") )
+
+```
+
+```{r}
+#get list of diff expressed genes with module membership and association with GO term 
+DEG_module <- pos_w_nodes_annot %>%
+  dplyr::select(name, module, disease) %>%
+  filter(disease != "NA")
+CJD_p <- CJD %>% 
+  filter(Celltype == celltype) %>%
+  dplyr::select(name = symbol, padj_CJD = padj, lFC_CJD = sLFC)
+FFI_p <- FFI %>% 
+  filter(Celltype == celltype) %>%
+  dplyr::select(name = symbol, padj_FFI = padj, lFC_FFI = sLFC)
+DEG_module <- left_join(DEG_module, CJD_p)
+DEG_module <- left_join(DEG_module, FFI_p)
+DEG_module <- DEG_module[order(DEG_module$module, decreasing = F),]
+
+GO <- enrichr_pos_w[[1]]$GO_Biological_Process_2021
+deg <- DEG_module %>%
+  filter(module == 1) %>%
+  pull(name)
+
+
+write.csv(DEG_module, file = paste0(outdir,"/DEG_by_module_", celltype,"_", date, ".csv"))
+```
+
+
+
+#get data frames for making network overview plots in cytoscape
+```{r}
+pos_w_edgelist <- get.data.frame(pos_w, what = c("both"))
+mod_edgelist <- pos_w_edgelist$edges
+
+name <- pos_w_edgelist$edges$from
+idxA <- match(name, pos_w_nodes$name) #get index indicating gene position form edge list n node
+Comm_A <- pos_w_nodes[idxA,]
+colnames(Comm_A) <- c("gene_A","module_A")
+
+name <- pos_w_edgelist$edges$to
+idxB <- match(name, pos_w_nodes$name) #get index indicating gene position form edge list n node
+Comm_B <- pos_w_nodes[idxB,]
+colnames(Comm_B) <- c("gene_B","module_B")
+Comm_df <- cbind(Comm_A, Comm_B)
+
+Comm_df <- Comm_df %>%
+  group_by(module_A, module_B)%>%
+  filter(module_A != module_B)%>% #remove edges within module
+  summarise(sum_edges = n())
+
+#for undirected network only! Sum up number of edges between modules
+combos <- combn(1:6, 2) #get unique combinations between module pairs
+comm_edgelist <- data.frame(t(combos)) #make df with all possible combinations between modules
+
+for (i in 1:length(combos/2)) {
+  m <- c(combos[,i])
+  sum <- Comm_df %>% 
+    filter(module_A %in% m & module_B %in% m)
+  total <- as.numeric(colSums(sum[,"sum_edges"]))
+  comm_edgelist[i,3] <- total
+  i <- i+1
+}
+
+colnames(comm_edgelist) <- c("Module_A","Module_B","sum_edges")
+
+#get df with number of genes per modules
+comm_genes <- pos_w_nodes %>%
+  group_by(module)%>%
+  summarise(num_genes = n())
+comm_genes <- comm_genes[complete.cases(comm_genes),]
+module_label <- c(rep(paste0("Module ",1:6)))
+comm_genes$label <- paste0(module_label, " (",comm_genes$num_genes,")")
+
+#count number of up/down regulated genes by module
+CJD_up <- pos_w_nodes_annot %>% filter(lfc_CJD >0 & module %in% c(1:6)) %>% group_by(module) %>% summarise(CJD_up = n()) %>% dplyr::select(CJD_up)
+CJD_down <- pos_w_nodes_annot %>% filter(lfc_CJD < 0 & module %in% c(1:6)) %>% group_by(module) %>% summarise(CJD_down = n()) %>% dplyr::select(CJD_down)
+FFI_up <- pos_w_nodes_annot %>% filter(lfc_FFI > 0 & module %in% c(1:6)) %>% group_by(module) %>% summarise(FFI_up = n()) %>% dplyr::select(FFI_up) 
+FFI_down <- pos_w_nodes_annot %>% filter(lfc_FFI < 0 & module %in% c(1:6)) %>% group_by(module) %>% summarise(FFI_down = n()) %>% dplyr::select(FFI_down) 
+comm_genes <- data.frame(cbind(comm_genes, CJD_up, CJD_down, FFI_up, FFI_down))
+
+
+
+write.csv(comm_edgelist, paste0(outdir,"/comm_edgelist_posw_",celltype,"_",date,".csv"))
+write.csv(comm_genes, paste0(outdir,"/comm_genes_posw_",celltype,"_",date,".csv"))
+
+```
+
+
+```{r}
+#save R session and sessionInfo
+date <- Sys.Date()
+run_info <- list(date(), metadata$sample_id, sessionInfo())
+names(run_info) <- c("Run date", "Analyzed samples", "Session Info")
+
+writeLines(capture.output(run_info), paste0(dir, "documentation/Run_info_Network_analysis_",celltype, "_", date,".txt"))
+
+save.image(file = paste0(dir,"R_sessions/Network_analysis_", celltype,"_", date, ".RData"))
+
+
+```
+ 
