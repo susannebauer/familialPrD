@@ -1,0 +1,329 @@
+[2021-04-27 20:49:32.939] [jointLog] [info] setting maxHashResizeThreads to 6
+[2021-04-27 20:49:32.939] [jointLog] [info] Fragment incompatibility prior below threshold.  Incompatible fragments will be ignored.
+[2021-04-27 20:49:32.954] [jointLog] [info] numQuantThreads = 3
+[2021-04-27 20:49:36.018] [jointLog] [info] replaced 4 non-ACGT nucleotides with random nucleotides
+[2021-04-27 20:49:36.288] [fileLog] [info] quantification processed 0 fragments so far
+
+[2021-04-27 20:49:39.782] [fileLog] [info] quantification processed 1000000 fragments so far
+
+[2021-04-27 20:49:43.171] [fileLog] [info] quantification processed 2000000 fragments so far
+
+[2021-04-27 20:49:44.929] [jointLog] [info] 
+
+The alignment group queue pool has been exhausted.  3169220 extra fragments were allocated on the heap to saturate the pool.  No new fragments will be allocated
+
+
+[2021-04-27 20:49:51.764] [fileLog] [info] quantification processed 3000000 fragments so far
+
+[2021-04-27 20:50:07.024] [fileLog] [info] quantification processed 4000000 fragments so far
+
+[2021-04-27 20:50:22.613] [fileLog] [info] quantification processed 5000000 fragments so far
+
+[2021-04-27 20:50:38.300] [fileLog] [info] quantification processed 6000000 fragments so far
+
+[2021-04-27 20:50:53.375] [fileLog] [info] quantification processed 7000000 fragments so far
+
+[2021-04-27 20:50:56.856] [fileLog] [info] quantification processed 8000000 fragments so far
+
+[2021-04-27 20:51:00.308] [fileLog] [info] quantification processed 9000000 fragments so far
+
+[2021-04-27 20:51:03.638] [fileLog] [info] quantification processed 10000000 fragments so far
+
+[2021-04-27 20:51:06.884] [fileLog] [info] quantification processed 11000000 fragments so far
+
+[2021-04-27 20:51:10.290] [fileLog] [info] quantification processed 12000000 fragments so far
+
+[2021-04-27 20:51:13.757] [fileLog] [info] quantification processed 13000000 fragments so far
+
+[2021-04-27 20:51:17.210] [fileLog] [info] quantification processed 14000000 fragments so far
+
+[2021-04-27 20:51:20.441] [fileLog] [info] quantification processed 15000000 fragments so far
+
+[2021-04-27 20:51:23.844] [fileLog] [info] quantification processed 16000000 fragments so far
+
+[2021-04-27 20:51:27.273] [fileLog] [info] quantification processed 17000000 fragments so far
+
+[2021-04-27 20:51:30.616] [fileLog] [info] quantification processed 18000000 fragments so far
+
+[2021-04-27 20:51:33.911] [fileLog] [info] quantification processed 19000000 fragments so far
+
+[2021-04-27 20:51:37.295] [fileLog] [info] quantification processed 20000000 fragments so far
+
+[2021-04-27 20:51:40.484] [fileLog] [info] quantification processed 21000000 fragments so far
+
+[2021-04-27 20:51:43.936] [fileLog] [info] quantification processed 22000000 fragments so far
+
+[2021-04-27 20:51:47.405] [fileLog] [info] quantification processed 23000000 fragments so far
+
+[2021-04-27 20:51:50.744] [fileLog] [info] quantification processed 24000000 fragments so far
+
+[2021-04-27 20:51:54.401] [fileLog] [info] quantification processed 25000000 fragments so far
+
+[2021-04-27 20:51:57.728] [fileLog] [info] quantification processed 26000000 fragments so far
+
+[2021-04-27 20:52:01.057] [fileLog] [info] quantification processed 27000000 fragments so far
+
+[2021-04-27 20:52:04.394] [fileLog] [info] quantification processed 28000000 fragments so far
+
+[2021-04-27 20:52:07.918] [fileLog] [info] quantification processed 29000000 fragments so far
+
+[2021-04-27 20:52:11.270] [fileLog] [info] quantification processed 30000000 fragments so far
+
+[2021-04-27 20:52:14.556] [fileLog] [info] quantification processed 31000000 fragments so far
+
+[2021-04-27 20:52:17.784] [fileLog] [info] quantification processed 32000000 fragments so far
+
+[2021-04-27 20:52:21.115] [fileLog] [info] quantification processed 33000000 fragments so far
+
+[2021-04-27 20:52:24.244] [fileLog] [info] quantification processed 34000000 fragments so far
+
+[2021-04-27 20:52:27.454] [fileLog] [info] quantification processed 35000000 fragments so far
+
+[2021-04-27 20:52:30.751] [fileLog] [info] quantification processed 36000000 fragments so far
+
+[2021-04-27 20:52:34.129] [fileLog] [info] quantification processed 37000000 fragments so far
+
+[2021-04-27 20:52:37.596] [fileLog] [info] quantification processed 38000000 fragments so far
+
+[2021-04-27 20:52:40.874] [fileLog] [info] quantification processed 39000000 fragments so far
+
+[2021-04-27 20:52:44.295] [fileLog] [info] quantification processed 40000000 fragments so far
+
+[2021-04-27 20:52:47.612] [fileLog] [info] quantification processed 41000000 fragments so far
+
+[2021-04-27 20:52:48.586] [fileLog] [info] quantification processed 41285854 fragments so far
+
+[2021-04-27 20:52:55.131] [jointLog] [info] Thread saw mini-batch with a maximum of 7.90% zero probability fragments
+[2021-04-27 20:52:55.133] [jointLog] [info] Thread saw mini-batch with a maximum of 8.30% zero probability fragments
+[2021-04-27 20:52:55.136] [jointLog] [info] Thread saw mini-batch with a maximum of 7.70% zero probability fragments
+[2021-04-27 20:52:55.137] [jointLog] [info] 
+
+
+Completed first pass through the alignment file.
+Total # of mapped reads : 41285854
+# of uniquely mapped reads : 15857564
+# ambiguously mapped reads : 25428290
+
+
+
+[2021-04-27 20:52:55.285] [jointLog] [info] Computed 229313 rich equivalence classes for further processing
+[2021-04-27 20:52:55.285] [jointLog] [info] Counted 41095676 total reads in the equivalence classes 
+[2021-04-27 20:52:55.287] [jointLog] [info] starting optimizer
+[2021-04-27 20:52:55.390] [jointLog] [info] Marked 0 weighted equivalence classes as degenerate
+[2021-04-27 20:52:55.409] [jointLog] [info] iteration = 0 | max rel diff. = 5109.87
+[2021-04-27 20:52:57.043] [jointLog] [info] iteration = 100 | max rel diff. = 16.6989
+[2021-04-27 20:52:58.666] [jointLog] [info] iteration = 200 | max rel diff. = 1.91471
+[2021-04-27 20:53:00.292] [jointLog] [info] iteration = 300 | max rel diff. = 3.09771
+[2021-04-27 20:53:01.942] [jointLog] [info] iteration = 400 | max rel diff. = 1.01639
+[2021-04-27 20:53:03.589] [jointLog] [info] iteration = 500 | max rel diff. = 4.17326
+[2021-04-27 20:53:05.227] [jointLog] [info] iteration = 600 | max rel diff. = 0.122709
+[2021-04-27 20:53:06.835] [jointLog] [info] iteration = 700 | max rel diff. = 0.0985726
+[2021-04-27 20:53:08.454] [jointLog] [info] iteration = 800 | max rel diff. = 0.141212
+[2021-04-27 20:53:10.067] [jointLog] [info] iteration = 900 | max rel diff. = 0.354553
+[2021-04-27 20:53:11.684] [jointLog] [info] iteration = 1000 | max rel diff. = 0.269147
+[2021-04-27 20:53:13.298] [jointLog] [info] iteration = 1100 | max rel diff. = 0.097027
+[2021-04-27 20:53:14.900] [jointLog] [info] iteration = 1200 | max rel diff. = 0.625388
+[2021-04-27 20:53:16.507] [jointLog] [info] iteration = 1300 | max rel diff. = 0.279529
+[2021-04-27 20:53:18.123] [jointLog] [info] iteration = 1400 | max rel diff. = 0.137844
+[2021-04-27 20:53:19.734] [jointLog] [info] iteration = 1500 | max rel diff. = 0.357761
+[2021-04-27 20:53:21.339] [jointLog] [info] iteration = 1600 | max rel diff. = 0.859293
+[2021-04-27 20:53:22.951] [jointLog] [info] iteration = 1700 | max rel diff. = 0.334263
+[2021-04-27 20:53:24.566] [jointLog] [info] iteration = 1800 | max rel diff. = 0.0365343
+[2021-04-27 20:53:26.176] [jointLog] [info] iteration = 1900 | max rel diff. = 0.0346635
+[2021-04-27 20:53:27.782] [jointLog] [info] iteration = 2000 | max rel diff. = 0.172032
+[2021-04-27 20:53:29.401] [jointLog] [info] iteration = 2100 | max rel diff. = 2.76846
+[2021-04-27 20:53:31.024] [jointLog] [info] iteration = 2200 | max rel diff. = 0.0344433
+[2021-04-27 20:53:32.645] [jointLog] [info] iteration = 2300 | max rel diff. = 0.030065
+[2021-04-27 20:53:34.256] [jointLog] [info] iteration = 2400 | max rel diff. = 0.122195
+[2021-04-27 20:53:34.497] [jointLog] [info] iteration = 2416 | max rel diff. = 0.00757343
+[2021-04-27 20:53:34.528] [jointLog] [info] finished optimizer
+[2021-04-27 20:53:34.528] [jointLog] [info] writing output
+[2021-04-27 20:53:36.412] [jointLog] [info] Computing gene-level abundance estimates
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.233] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.234] [jointLog] [warning] Feature has no GFF ID
+[2021-04-27 20:54:06.544] [jointLog] [info] There were 142604 transcripts mapping to 55401 genes
+[2021-04-27 20:54:06.544] [jointLog] [info] NOTE: We recommend using tximport (https://bioconductor.org/packages/release/bioc/html/tximport.html) for aggregating transcript-level salmon abundance estimates to the gene level.  It is more versatile, exposes more features, and allows considering multi-sample information during aggregation.
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459430] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516784] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516752] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668364] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883670] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [EF011062] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ875385] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883664] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459420] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883651] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ855004] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ854993] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883689] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459419] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459431] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516796] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ855001] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459413] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883656] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883661] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [EF011069] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516783] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516787] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459424] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516748] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883671] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516740] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516785] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516731] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668366] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459418] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668356] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516763] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459426] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516786] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883653] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459421] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883654] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668358] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516754] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516778] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883650] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516742] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883673] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883652] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ854991] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516780] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883682] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883669] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516791] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459425] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516759] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459429] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516758] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459415] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ875387] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516815] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668365] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ854998] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883685] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459422] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883663] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668367] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459412] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ854992] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516782] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ459427] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [EF011072] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ855003] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516739] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [EF011063] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ855000] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516777] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883646] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668362] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ854995] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ875386] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516790] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883642] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883659] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ854997] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883643] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ839618] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516795] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ883658] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516750] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668359] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516779] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ668363] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516776] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ516773] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [warning] couldn't find transcript named [DQ854994] in transcript <-> gene map; returning transcript as it's own gene
+[2021-04-27 20:54:06.816] [jointLog] [info] Aggregating expressions to gene level
+[2021-04-27 20:54:07.050] [jointLog] [info] done

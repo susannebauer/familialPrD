@@ -1,0 +1,10 @@
+{
+    "salmon_version": "1.4.0",
+    "geneMap": "annot_with_attributes.gtf",
+    "threads": "6",
+    "libType": "ISR",
+    "targets": "genome.transcripts.fa",
+    "alignments": "Control_GadCer_IP_R1.Aligned.toTranscriptome.out.bam",
+    "output": "Control_GadCer_IP_R1",
+    "auxDir": "aux_info"
+}

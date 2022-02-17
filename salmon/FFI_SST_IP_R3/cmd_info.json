@@ -1,0 +1,10 @@
+{
+    "salmon_version": "1.4.0",
+    "geneMap": "annot_with_attributes.gtf",
+    "threads": "6",
+    "libType": "ISR",
+    "targets": "genome.transcripts.fa",
+    "alignments": "FFI_SST_IP_R3.Aligned.toTranscriptome.out.bam",
+    "output": "FFI_SST_IP_R3",
+    "auxDir": "aux_info"
+}
