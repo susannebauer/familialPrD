@@ -1,0 +1,625 @@
+---
+title: "RiboTag_plots_EDA"
+author: "Susanne Bauer"
+date: "03/08/2021"
+output:
+    html_document: 
+      code_folding: hide
+      fig_caption: yes
+      number_sections: yes
+      toc: yes
+      toc_float:
+        collapsed: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r Setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(fig.height = 6, fig.width = 8, fig.align = 'center')
+```
+
+
+```{r load libraries, include= FALSE}
+library(tximport)
+library(umap)
+library(dplyr)
+library(Hmisc)
+library(ggplot2)
+library(ggrepel)
+library(corrplot)
+library(RColorBrewer)
+library(factoextra)
+library(pheatmap)
+library(ggcorrplot)
+library(viridisLite)
+
+#make directory for output figures
+dir <- paste0("./figures/EDA/")
+ifelse(!dir.exists(dir), dir.create(dir),F) 
+
+#make directory for results
+file_dir <- paste0("./result_files/EDA/")
+ifelse(!dir.exists(file_dir), dir.create(file_dir),F) #directory for output files
+```
+
+
+```{r set color scheme}
+group_color_scheme <- c(FFI = "#B74D67", CJD = "#1D599C", Control = "#C7B6DD")
+celltype_color_scheme <- c(Gad2 = "#50C1CA", PV = "#8B6EDA", SST = "#E0D42A", vGlut2 = "#D55E00")
+region_color_scheme <- c(Cerebrum = "black", Cerebellum = "#B7B6BB")
+fraction_color_scheme <- c(IP = "#157F1B" , total = "#E8B94D" )
+
+new_ct_color <- c(`Gad2 Cerebrum` = "#50C1CA", `PV Cerebrum` = "#8B6EDA", `SST Cerebrum` = "#E0D42A", `vGluT2 Cerebrum` = "#D55E00", `Gad2 Cerebellum` = "#BDE8EB", `vGluT2 Cerebellum` = "#EAAF80")
+
+ann_colors <- list(Group = group_color_scheme,
+                   Cell_type = celltype_color_scheme,
+                   Region = region_color_scheme,
+                   Fraction = fraction_color_scheme)
+```
+
+
+#Load metadata and TPM values for all included samples
+```{r load input files, excluding samples, include=FALSE}
+
+metadata <- read.csv("./metadata/prionsamples_meta.csv", header = T, sep = ";")
+cols <- c("Prep_date","Death_day","seq_lane","Group")
+metadata[cols] <- lapply(metadata[cols], factor) 
+
+#subset which samples to analyze
+samples_meta <- metadata %>%
+  filter(sample_set != "exclude")
+
+#list salmon output files (quant.sf) for selected samples
+files <- file.path("./salmon/",samples_meta$nfcore_id, "quant.sf")
+
+#assign sample id to file names to rename samples based on id in txi output
+names(files) <- samples_meta$sample_id  
+
+tx2gene <- read.table("./metadata/salmon_tx2gene.tsv")
+
+#read in salmon output files 
+txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
+#tximport generates several output files. "count" matrix containes raw counts summarized to gene level, which are used for DESeq2 analysis. "abundance" gives tpm values summarized to gene level.
+
+TPMs <- txi$abundance
+
+#check that sample order in count and metadata files match
+sample_ids <- samples_meta$sample_id
+all(colnames(txi$counts) == sample_ids)
+
+#extract and subset ERCC counts
+ERCC_idx <- grep(pattern = "ERCC*", rownames(TPMs))
+ERCC_TPMs <- data.frame(TPMs[ERCC_idx,])
+TPMs <- data.frame(TPMs[-ERCC_idx,])
+
+rownames(TPMs) <- stringr::str_replace(rownames(TPMs), pattern = ".[0-9]+$", replacement = "")
+
+# library(biomaRt)
+# mouse_mart = useMart(biomart = "ensembl", dataset = "mmusculus_gene_ensembl")
+# df_mm_genes_ensembl <- getBM(attributes = c("ensembl_gene_id", "entrezgene_id", "external_gene_name", "gene_biotype", "chromosome_name", "start_position", "end_position", "strand", "description"),
+#              mart = mouse_mart)
+# detach(package:biomaRt)
+# ProteinCodingGenes <- df_mm_genes_ensembl %>% filter(gene_biotype == "protein_coding")
+
+ProteinCodingGenes <- read.csv("./metadata/ProteinCodingGenes_220325.csv")
+
+idx_ProtC <- rownames(TPMs) %in% ProteinCodingGenes$ensembl_gene_id
+TPM_prot <- TPMs[idx_ProtC,]
+
+#log-transform TPMs to normalize
+logTPM <- log2(TPM_prot +1)
+```
+
+
+```{r}
+#get average age of mice at sacrifice 
+age_all <- metadata %>%
+  filter(sample_set != "exclude")%>%
+  filter(Fraction == "IP")%>%
+  mutate(Age_m = (Age)/4.35)%>%
+  summarise(mean = mean(Age_m), sd = sd(Age_m), se = sd(Age_m)/sqrt(length(Age_m)))
+age_all <- round(age_all, digits = 1)
+print(t(age_all))
+
+#age at sacrifice by sample set
+age_ct <- metadata %>%
+  filter(sample_set != "exclude")%>%
+  filter(Fraction == "IP")%>%
+  group_by(sample_set)%>%
+  summarise(mean = mean(Age), sd = sd(Age), se = sd(Age)/sqrt(length(Age)))
+age_ct[,2:4] <- round(age_ct[,2:4], digits = 2)
+print(t(age_ct))
+```
+
+#number of detected expressed genes (TPM > 1) by fraction and cell type
+```{r detected genes in selected samples}
+#plot number of detected genes per sample (TPM >1), get average
+det_genes <- colSums(TPM_prot >1)
+mean_genes <-  round(mean(det_genes))
+
+annot <- samples_meta %>% 
+  dplyr::select(sample_id, Group, Region, Fraction, Cell_type) %>%
+  mutate(Cell_type = stringr::str_replace(Cell_type, "vGlut2", "vGluT2"))%>%
+  mutate(new_ct = interaction(Cell_type, Region))%>%
+  mutate(new_ct = stringr::str_replace(new_ct, "\\.", " "))
+det_genes <- merge(det_genes, annot, by.x = 0, by.y = 1)
+
+#boxplot of detected genes per sample
+det_genes_sel <- ggplot(det_genes, aes(x = Group, y = x, fill = Group))+
+  geom_boxplot(width = 0.7)+
+  scale_fill_manual(values = group_color_scheme)+
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16),
+        legend.position = "right",
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 14),
+        axis.ticks = element_blank(),
+        plot.title.position = "panel")+
+  labs(title = "Detected genes in IP and total RNA libraries",
+       subtitle = paste0("Overall mean of detected genes/sample: ", mean_genes),
+       x = "",
+       y = "Protein-coding genes with TPM > 1",
+       fill = "Genotype")+
+  facet_grid(Fraction~new_ct)
+det_genes_sel
+
+ggsave(file = paste0(dir, "genes_selected_samples_new.svg"), plot = det_genes_sel, dpi = 300, units = "cm", width = 22, height = 10)
+
+```
+
+#sample-wise correlation IPs
+```{r sample-to-sample correlation plots}
+#Subset IP samples for all cell types and disease
+IP_idx <- samples_meta %>%
+  filter(Fraction == "IP")%>%
+  filter(sample_set != "exclude") %>%
+  dplyr::select(sample_id)%>%
+  pull()
+
+all_IPs <- logTPM[,IP_idx]
+
+#calculate variance across all samples (columns) for each gene (row)
+var <- apply(all_IPs,1,var)
+
+# #keep only top x % of variabe genes
+# perc <- round(length(var)*0.2)
+# top_var <- names(var[order(var, decreasing = T)][1:perc])
+# heat_sample_corr <- all_IPs[top_var,]
+
+dim(all_IPs)
+
+#Run spearman correlation analysis. rcorr returns list of three df: r is the correlation matrix, n the number of observations on which pairwise analysis is based, P is the asymptotic p-value 
+corr_matrix <- rcorr(as.matrix(all_IPs), type = "spearman")
+
+#heatmap of correlation matrix (spearman)
+col_annot <- samples_meta[,c("sample_id","Group", "Cell_type","Region")]
+col_annot <- filter(col_annot, sample_id %in% colnames(corr_matrix$r))
+rownames(col_annot) <- col_annot$sample_id
+col_annot$sample_id <- NULL
+
+sample_heatmap <- pheatmap(mat = corr_matrix$r,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+         annotation_col = col_annot,
+         annotation_color = ann_colors,
+         annotation_names_col = F,
+         show_colnames = F,
+         scale = "none",
+         cluster_rows = T,
+         cluster_cols = T,
+         cutree_rows = 2,
+         cutree_cols = 2,
+         clustering_method = "ward.D",
+         show_rownames = F,
+         border_color = NA,
+         fontsize_col = 6,
+         main = "Sample to Sample correlation (Spearman)"
+         )
+
+ggsave(file = paste0(dir, "sample_heatmap.png"), plot = sample_heatmap, dpi = 300, units = "cm", height = 17, width = 25)
+```
+
+#PCA plot IP samples
+```{r}
+set.seed(12)
+#Subset IP samples for all cell types and disease
+IP_idx <- samples_meta %>%
+  filter(Fraction == "IP")%>%
+  filter(sample_set != "exclude") %>%
+  dplyr::select(sample_id)%>%
+  pull()
+
+all_IPs <- logTPM[,IP_idx]
+
+#calculate variance across all samples (columns) for each gene (row)
+IPvar <- apply(all_IPs,1,var)
+#keep only top 10 % of variabe genes
+perc <- round(length(IPvar)*0.1)
+top_var <- names(IPvar[order(IPvar, decreasing = T)][1:perc])
+IP_PCA_data <- all_IPs[top_var,]
+
+
+#PCA plot of included IP samples
+#PCA TPM
+IP_PCA <- prcomp(t(IP_PCA_data))
+summary(IP_PCA)
+
+iPCs <- data.frame(IP_PCA$x)
+iannot <- metadata %>%
+  filter(sample_id %in% rownames(iPCs))%>%
+  dplyr::select(sample_id, Cell_type, Group, Fraction, Region)%>%
+  mutate(new_ct = print(interaction(Cell_type, Region)))%>%
+  mutate(new_ct = gsub("\\.", " ", new_ct))%>%
+  mutate(new_ct = gsub("vGlut2", "vGluT2", new_ct))
+  
+
+#calculate proportion of variance explained by first two PCs
+IP_PCA$Pvar <-  IP_PCA$sdev^2/sum(IP_PCA$sdev^2)
+Pvar1 <- round(IP_PCA$Pvar[1]*100)
+Pvar2 <- round(IP_PCA$Pvar[2]*100)
+
+
+PCA <- ggplot(iPCs, aes(x = PC1, y = PC2))+
+  geom_point(aes(fill = iannot$new_ct, shape = iannot$Group), size =3.5)+
+  scale_shape_manual(values = c(21, 22, 24))+
+  scale_fill_manual(values = new_ct_color, labels = names(new_ct_color))+
+  guides(fill = guide_legend(override.aes = list(color =  new_ct_color, size = 3.5)),
+         shape = guide_legend(override.aes = list(size = 3.5, fill = "white")))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 14),
+        axis.ticks = element_blank(),
+        plot.title.position = "panel",
+        legend.position = "none")+
+  labs(title = "PCA, RiboTag IP samples",
+       x = paste0("PC 1 (", Pvar1, " %)"),
+       y = paste0("PC 2 (", Pvar2, " %)"),
+       fill = "Cell type", 
+       shape = "Genotype", 
+       alpha = "Brain Region")
+PCA 
+
+ggsave(file = paste0(dir, "PCA_selIPs.svg"), plot = PCA+theme(legend.position = "none"), dpi = 300, units = "cm", width = 11, height = 9)
+```
+
+#PCA total samples and composite PCA plot
+```{r}
+#PCA for selected total RNA samples
+#Subset IP samples for all cell types and disease
+tot_idx <- samples_meta %>%
+  filter(Fraction == "total")%>%
+  filter(sample_set != "exclude") %>%
+  dplyr::select(sample_id)%>%
+  pull()
+total <- logTPM[,tot_idx]
+
+#calculate variance across all samples (columns) for each gene (row)
+tvar <- apply(total,1,var)
+perc <- round(length(tvar)*0.1)
+top_var <- names(tvar[order(tvar, decreasing = T)][1:perc])
+tot_PCA_data <- total[top_var,]
+
+tot_PCA <- prcomp(t(tot_PCA_data))
+
+
+tot_PCA$Pvar <-  tot_PCA$sdev^2/sum(tot_PCA$sdev^2)
+Pvar1 <- round(tot_PCA$Pvar[1]*100)
+Pvar2 <- round(tot_PCA$Pvar[2]*100)
+
+tPCs <- data.frame(tot_PCA$x)
+tannot <- metadata %>%
+  filter(sample_id %in% rownames(tPCs))%>%
+  dplyr::select(sample_id, Cell_type, Group, Fraction, Region)%>%
+  mutate(new_ct = print(interaction(Cell_type, Region)))%>%
+  mutate(new_ct = gsub("\\.", " ", new_ct))%>%
+  mutate(new_ct = gsub("vGlut2", "vGluT2", new_ct))
+
+new_ct_color <- c(`Gad2 Cerebrum` = "#50C1CA", `PV Cerebrum` = "#8B6EDA", `SST Cerebrum` = "#E0D42A", `vGluT2 Cerebrum` = "#D55E00", `Gad2 Cerebellum` = "#BDE8EB", `vGluT2 Cerebellum` = "#EAAF80")
+
+total_PCA <- ggplot(tPCs, aes(x = PC1, y = PC2))+
+  geom_point(aes(fill = tannot$new_ct, shape = tannot$Group), size =3.5)+
+  scale_shape_manual(values = c(21, 22, 24))+
+  scale_fill_manual(values = new_ct_color, labels = names(new_ct_color))+
+  guides(fill = guide_legend(override.aes = list(color =  new_ct_color, size = 3.5)),
+         shape = guide_legend(override.aes = list(size = 3.5, fill = NA)))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 14),
+        axis.ticks = element_blank(),
+        plot.title.position = "panel")+
+  labs(title = "PCA, total RNA samples",
+       x = paste0("PC 1 (", Pvar1, " %)"),
+       y = paste0("PC 2 (", Pvar2, " %)"),
+       fill = "Cell type", 
+       shape = "Genotype")
+
+total_PCA
+
+ggsave(file = paste0(dir, "PCA_seltotal.svg"), plot = total_PCA , dpi = 300, units = "cm", width = 14, height = 9)
+
+library(cowplot)
+com_PCA <- plot_grid(total_PCA, PCA, nrow = 1, ncol = 2, rel_widths = c(1.5,1))
+com_PCA
+
+ggsave(file = paste0(dir, "PCA_selboth.svg"), plot = com_PCA, dpi = 300, units = "cm", width = 28, height = 12)
+
+```
+
+
+#replace ensembl with gene symbols for TPM matrix
+```{r}
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+#replace ensembl id with gene symbol, keep protein coding genes
+TPM_name <- logTPM
+samples <- colnames(logTPM)
+TPM_name$symbol <- mapIds(org.Mm.eg.db, colum = "SYMBOL", keys = rownames(TPM_name), keytype = "ENSEMBL", multiVals = "first" )
+TPM_name <- aggregate(TPM_name[,samples], by= TPM_name["symbol"], FUN = sum)
+rownames(TPM_name) <- TPM_name$symbol
+TPM_name$symbol <- NULL
+
+```
+
+#Heatmap with cell type specific marker genes for cerebrum samples
+```{r Heatmap of celltype marker genes in IP and total RNA samples}
+#select Cerebrum samples from TPM matrix
+Cer <- samples_meta %>%
+  filter(Region == "Cerebrum")
+Cer_TPM <- TPM_name[,Cer$sample_id]
+
+#choose cell type-specific marker genes
+GABAall <- c("Gad2", "Slc32a1","Lhx6", "Dlx2")
+GABACer <- c("Vip","Htr3a","Adora2a","Drd1", "Drd2", "Penk", "Ppp1r1b", "Tac1", "Tac2")
+PV <- c("Pvalb","Syt2","Kcnc2","Cplx1","Nek7","Ank1","Pthlh","Kank4", "Gpr176")
+SST <- c("Sst","Npy", "Pdyn","Crh","Nos1","Chodl","Hpse","Myh8","Chrna2","Esm1","Nts")
+VglutCer <- c("Slc17a7", "Neurod6", "Emx1","Dkk3", "Id2", "Nrn1","Tbr1")
+astro <- c("Apoe", "Slc1a3","Slc6a11","S100b", "Gfap")
+micro <- c("Tmem119","Csf1r","Fcer1g","Itgam","Lyz2")
+celltype_genes <- c(GABAall, GABACer, PV, SST, VglutCer, astro, micro)
+
+#select TPM values for celltype-specific marker genes
+Cer_heat <- Cer_TPM[celltype_genes,]
+
+#reorder samples by Fraction, Cell type, Region, apply same sample order for TPM matrix
+metaCer <- Cer %>% arrange(Fraction, Cell_type) 
+idx <- match(metaCer$sample_id, colnames(Cer_heat))
+Cer_heat <- Cer_heat[,idx]
+
+all(colnames(Cer_heat) == metaCer$sample_id)
+
+#log-trnsform TPMs to normalize 
+Cer_heat <- log2(Cer_heat+1)
+
+z_Cer <- Cer_heat %>%
+  #get row-wise standard variation across all samples
+  mutate(sd = apply(.[1:length(.)],1,sd))%>%
+  #calculate mean for input samples
+  mutate(m = rowMeans(across(matches("*.B$")))) %>%
+  #divide mean(input) from all samples, except m and sd
+  mutate(across(-matches("m|sd"), ~. - m)) %>%
+  #divide by SD
+  mutate(across(-matches("m|sd"), ~. / sd)) %>%
+  dplyr::select(-m, -sd) 
+
+
+ann_colors <- list(Group = group_color_scheme,
+                   `Cell type` = celltype_color_scheme,
+                   Region = region_color_scheme,
+                   Fraction = fraction_color_scheme)
+
+#plot heatmap
+col_annot <- metaCer[c("Fraction", "Cell_type")]
+colnames(col_annot) <- c("Fraction", "Cell type")
+rownames(col_annot) <- colnames(z_Cer)
+myBreaks <- c(seq(min(z_Cer), 0, length.out=ceiling(100/2) + 1),
+              seq(max(z_Cer)/100, max(z_Cer), length.out=floor(100/2)))
+
+#z-score calculated by scale row 
+marker_Cer <- pheatmap(mat = z_Cer,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+         breaks = myBreaks,
+         annotation_col = col_annot,
+         annotation_color = ann_colors,
+         annotation_names_col = F,
+         show_colnames = F,
+         #scale = "row,
+         cluster_cols = F,
+         cluster_rows = F,
+         fontsize_row = 12,
+         gaps_col = 65,
+         gaps_row = c(13, 22, 33, 40),
+         border_color = NA
+         )
+ggsave(file = paste0(dir, "heatmap_marker_Cerebrum_normInput.svg"), plot = marker_Cer, dpi = 300, units = "cm", height = 20, width = 14)
+
+```
+
+#Heatmap cell type markers cerebellum
+```{r}
+Cb <- samples_meta %>%
+  filter(Region == "Cerebellum")
+Cb_TPM <- TPM_name[,Cb$sample_id]
+
+
+GABAergic <- c("Gad2", "Slc32a1", "Pvalb")
+Purkinje <- c("Pcp2", "Calb1", "Grid2", "Foxp2","Esrrb", "Itpka")
+golgi <- c("Gjd2", "Sorcs3", "Lgi2")
+stellate <- c("Grik3")
+basket <- c("Kcna2")
+Glutamatergic <- c("Slc17a7", "Eomes")
+Granule <- c("Gabra6","Zic1", "Neurod1", "Cntn2", "Etv1", "Nfia")
+VglutCb <- c("Cbln1", "Cbln3", "Calb2", "Crhr1")
+astro <- c("Apoe", "Slc1a3","Slc6a11","S100b", "Gfap")
+micro <- c("Aif1","Csf1r","Fcer1g","Itgam","Lyz2")
+
+Cb_genes <- c(GABAergic, Purkinje, golgi, stellate, basket, Glutamatergic, Granule, astro, micro)
+
+#select TPM for celltype-specific marker genes
+Cb_heat <- Cb_TPM[Cb_genes,]
+
+#reorder samples by Fraction, Cell type, Region, apply same sample order for TPM matrix
+metaCb <- Cb %>% arrange(Fraction, Cell_type) 
+idx <- match(metaCb$sample_id, colnames(Cb_heat))
+Cb_heat <- Cb_heat[,idx]
+
+all(colnames(Cb_heat) == metaCb$sample_id)
+
+ann_colors <- list(Group = group_color_scheme,
+                   `Cell type` = celltype_color_scheme,
+                   Region = region_color_scheme,
+                   Fraction = fraction_color_scheme)
+
+#Calculate Z score normalizing to input (total RNA)
+z_Cb <- Cb_heat %>%
+  #get row-wise standard variation across all samples (RiboTag IP and total RNA)
+  mutate(sd = apply(.[1:length(.)],1,sd))%>%
+  #calculate mean for input (= total RNA) samples. (Sample_IDs for total RNA samples end with ".E")
+  mutate(m = rowMeans(across(matches("*.E$")))) %>%
+  #divide mean(input) from all samples (exclude columns with m and sd)
+  mutate(across(-matches("m|sd"), ~. - m)) %>%
+  #divide by SD (exclude m and sd columns)
+  mutate(across(-matches("m|sd"), ~. / sd)) %>%
+  dplyr::select(-m, -sd) 
+
+
+#plot heatmap
+col_annot <- metaCb[c("Fraction", "Cell_type")]
+colnames(col_annot) <- c("Fraction", "Cell type")
+rownames(col_annot) <- colnames(z_Cb)
+myBreaks <- c(seq(min(z_Cb), 0, length.out=ceiling(100/2) + 1),
+              seq(max(z_Cb)/100, max(z_Cb), length.out=floor(100/2)))
+
+marker_Cb <- pheatmap(mat = z_Cb,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+         breaks = myBreaks,
+         annotation_col = col_annot,
+         annotation_color = ann_colors,
+         annotation_names_col = F,
+         show_colnames = F,
+         #scale = "row",
+         cluster_rows = F,
+         cluster_cols = F,
+         fontsize_row = 12,
+         gaps_col = 32,
+         gaps_row = c(14,22),
+         border_color = NA,
+         legend = T,
+         annotation_legend = F
+         )
+ggsave(file = paste0(dir, "heatmap_marker_Cerebellum_normInput.svg"), plot = marker_Cb, dpi = 300, units = "cm", height = 14, width = 8)
+```
+
+#Prnp levels barplot
+```{r}
+TPM_prnp <- t(TPM_prot["ENSMUSG00000079037",])
+meta_prnp <- samples_meta %>%
+  filter(sample_id %in% rownames(TPM_prnp)) %>%
+  dplyr::select(sample_id, Group, Cell_type, Fraction, Region)
+TPM_prnp <- merge(TPM_prnp, meta_prnp, by.x = 0, by.y = "sample_id")
+IP_prnp <- TPM_prnp %>% 
+  filter(Fraction == "IP")%>%
+  mutate(Prnp = ENSMUSG00000079037)
+tot_prnp <- TPM_prnp %>% 
+  filter(Fraction == "total")%>%
+  mutate(Prnp = ENSMUSG00000079037)
+
+IP_prnp$Group <- ordered(IP_prnp$Group, levels = c("Control", "CJD", "FFI"))
+IP_prnp$Cell_type <- gsub("vGlut2", "vGluT2", IP_prnp$Cell_type)
+
+
+#boxplot Prnp levels, run Kruskal-Wallis tets and wilcoxon post-hoc
+library(ggplot2)
+library(ggpubr)
+prnp_kw <- ggplot(IP_prnp, aes(y = Prnp, x = Group, fill = Group))+
+  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+  geom_point(aes(y = Prnp, x = Group, color = Group), position = position_jitterdodge(), show.legend = F)+
+  stat_compare_means(method = "kruskal.test", label.y = 1350)+
+  stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = ".all.", hide.ns = T)+
+  scale_fill_manual(values = group_color_scheme)+
+  scale_color_manual(values = group_color_scheme)+
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title.position = "plot")+
+  labs(title = "Prnp levels by cell type",
+       y = "TPM",
+       x = "",
+       fill = "Disease")+
+  facet_grid(~interaction(Cell_type, Region))
+prnp_kw
+ggsave(file = paste0(dir, "Prnp_kruskal.png"), plot = prnp_kw, dpi = 300, units = "cm", height =15, width = 25)
+
+
+dat_kw <- IP_prnp %>% dplyr::filter(Cell_type == "vGluT2" & Region == "Cerebrum")
+kruskal.test(Prnp ~ Group, data = dat_kw)
+dat_kw$Group <- factor(dat_kw$Group, levels = c("Control", "CJD", "FFI"))
+FSA::dunnTest(Prnp ~Group, data = dat_kw, method = "bh") #post-hoc with Dunn's test
+
+#make new plot including results from post-hoc test
+IP_prnp$int <- gsub("\\.", " ", paste(interaction(IP_prnp$Cell_type, IP_prnp$Region)))
+IP_prnp$int <- factor(IP_prnp$int, levels = c("Gad2 Cerebrum", "PV Cerebrum", "SST Cerebrum", "vGluT2 Cerebrum", "Gad2 Cerebellum", "vGluT2 Cerebellum"), ordered = T)
+
+prnp_plot <- ggplot(IP_prnp, aes(y = Prnp, x = int, fill = Group))+
+  geom_boxplot(outlier.shape = NA)+
+  #geom_point(aes(y = Prnp, x = int, color = Group), position = position_jitterdodge(), show.legend = F)+
+  geom_vline(xintercept = 4.5, linetype = "dashed", color = "grey72")+
+  scale_fill_manual(values = group_color_scheme)+
+  scale_color_manual(values = group_color_scheme)+
+  scale_x_discrete(labels = c( "Gad2\nCerebrum","PV\nCerebrum","SST\nCerebrum","vGluT2\nCerebrum", "Gad2\nCerebellum", "vGluT2\nCerebellum"))+
+  guides(fill = guide_legend(override.aes = list(alpha = 1)))+
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title.position = "panel",
+        axis.text.x  = element_text(size = 16, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 16),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 20),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 18),
+        legend.position = "left")+
+  labs(title = "Prnp levels by cell type",
+       y = "TPM",
+       x = "",
+       fill = "Genotype")+
+  annotate(geom = "text", x = 4.15, y = 1350, label = "*", size = 6)+
+  annotate(geom = "curve", x = 4, xend = 4.3, y = 1340, yend = 1340, curvature = 0)
+prnp_plot
+ggsave(file = paste0(dir, "Prnp_levels.svg"), plot = prnp_plot, dpi = 300, units = "cm", height =13, width = 15)
+
+```
+
+#save output 
+```{r save output, message = FALSE}
+#save analysis details (date, included samples)
+run_info <- list(date(), row.names(metadata), sessionInfo())
+names(run_info) <- c("Run date", "Analyzed samples", "Session Info")
+writeLines(capture.output(run_info), paste("Run_info_RT_plots.txt"))
+
+print(run_info)
+
+date <- Sys.time()
+save.image(file = "./R_sessions/RT_plots_", date,".RData")
+```
+
+

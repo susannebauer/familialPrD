@@ -1,0 +1,496 @@
+---
+title: "R Notebook"
+output: html_notebook
+
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.height = 8, fig.width = 12, fig.align = 'center')
+```
+
+
+```{r}
+library(rrvgo)
+library(ggplot2)
+library(dplyr)
+library(org.Mm.eg.db)
+
+date <- Sys.Date()
+
+#make directory for output figures
+dir <- paste0("./figures/GSEA/")
+ifelse(!dir.exists(dir), dir.create(dir),F) 
+```
+
+
+```{r}
+#read in files with consensus genesets 
+path <- "./result_files/GSEA/"
+
+KEGG_con <- list.files(path, pattern = "*_consKEGG_*", full.names = T)%>%
+  lapply(read.csv, stringsAsFactors = F) %>%
+  bind_rows() 
+KEGG_con <- KEGG_con %>%
+  mutate(celltype = gsub(".*_", "", KEGG_con$dataset)) %>%
+  mutate(disease = gsub("_.*","", KEGG_con$dataset))
+
+GO_con <- list.files(path, pattern = "*_consGO_*", full.names = T) %>%
+  lapply(read.csv, stringsAsFactors = F) %>%
+  bind_rows()
+GO_con <- GO_con %>%
+  mutate(celltype = gsub(".*_", "", GO_con$dataset))%>%
+  mutate(disease = gsub("_.*","", GO_con$dataset))
+
+cts <- c("GadCer", "SST", "PV", "VglutCer","GadCb", "VglutCb")
+names(cts) <- c("Gad2 Cerebrum", "SST", "PV", "vGlut2 Cerebrum", "Gad2 Cerebellum", "vGlut2 Cerebellum")
+ct <- cts[2]
+
+```
+
+
+
+```{r}
+#subset GO terms with padj < 0.05 
+#replace padj > 0.05 with NA
+G <- GO_con %>%
+  dplyr::select(contains("padj")) %>%
+  replace(. > 0.05, NA)
+#calculate which gene sets have NA in more than half of the used methods
+G$NoNA <- apply(G, 1, function(x) sum(is.na(x)))
+G$incl <- ifelse(G$NoNA <= 9, "y", "n") 
+#select gene set stats, add column with number f genes changes by directionality
+G <- GO_con %>%
+  dplyr::select(geneset, ConsRank, ConsScore, genes_tot, genes_up, genes_dn, Dir, celltype, disease)%>%
+  cbind(G) %>%
+  filter(incl == "y")%>%
+  mutate(genes_dir = case_when(Dir == "up" ~genes_up,
+                               Dir == "down" ~genes_dn))
+
+#collapse gene sets using rrvigo
+collapse_GOterms <- function(data){
+  require(rrvgo)
+  require(tidyverse)
+  require(stringr)
+  #get GO Id number from gene set name
+  GO_terms <- data.frame(data[,"geneset"])
+  GO_terms$ID <- stringr::str_sub(GO_terms$data....geneset.., start = -11, end = -2)
+  
+  
+  #optional: assign scores on Gene sets, based on consensus Score
+  # scores <- data$ConsScore
+  # names(scores) <- GO_terms$ID
+  # head(scores)
+  
+  #Calculate GO similarity and assign parent term
+  simMatrix <- calculateSimMatrix(GO_terms$ID,
+                                  orgdb = "org.Mm.eg.db",
+                                  ont = "BP",
+                                  method = "Resnik")
+  redTerms <- reduceSimMatrix(simMatrix,
+                              #scores = scores,
+                              threshold = 0.8,
+                              orgdb = "org.Mm.eg.db")
+  
+  length(unique(redTerms$term))
+  length(unique(redTerms$parentTerm))
+  
+  treemapPlot(redTerms)
+  idx <- match(data$geneset, GO_terms$data....geneset..)
+  GO_ID <- GO_terms$ID[idx]
+  data$GO_ID <- GO_ID
+  idx_parent <- match(data$GO_ID, redTerms$go)
+  data$parent_ID <- redTerms$parent[idx_parent]
+  data$parent_term <- redTerms$parentTerm[idx_parent]
+  
+  #if no matching parent term found, keep original GO ID
+  data <- data %>%
+    mutate(new_term = case_when(!is.na(parent_ID) ~parent_term,
+                                 is.na(parent_ID) ~geneset)) %>%
+    mutate(new_term = str_remove(new_term, pattern = ".(GO:d*.*)")) %>%
+
+  return(data)
+}
+
+Gcol <- collapse_GOterms(G)
+Gcol$celltype <- factor(G$celltype, levels = c("GadCer", "PV", "SST", "VglutCer", "GadCb", "VglutCb"))
+Gcol$Dir <- factor(G$Dir, levels = c("up","down"))
+Gcol$gene_ratio <- Gcol$genes_dir/Gcol$genes_tot
+
+par_terms <- Gcol$parent_ID
+Gpar <- Gcol %>%
+  group_by(disease, celltype, new_term)%>%
+  slice_max(ConsRank, n = 1)
+
+g <- Gcol %>% 
+  filter(incl == "y")%>%
+  filter(ConsRank <= 5)
+
+g_plot <- ggplot(g, aes(x = disease, y = parent_term,  size = genes_dir/genes_tot, fill = Dir, alpha = ConsRank, shape = Dir))+
+  geom_point(color = "Black")+
+  scale_alpha_continuous(range = c(1,0.1))+
+  scale_shape_manual(values = c(down = 25, up = 24), guide = "none")+
+  scale_fill_manual(values = c(down = "#006699", up = "#990000"))+
+  theme_bw()+
+  theme(plot.title.position = "plot")+
+  guides(size = guide_legend(override.aes = list(shape = 24)),
+         alpha = guide_legend(override.aes = list(shape = 24, size = 4)),
+         fill = guide_legend(override.aes = list(size = 4, shape = c(24,25))))+
+  labs(title = "Top 5 ranked enriched GO terms, distinct directional",
+       x = "", 
+       y = "Collapsed GO terms (Biological Process)",
+       fill = "Direction of enrichment",
+       size = "Gene ratio",
+       alpha = "Consensus Rank")+
+  facet_grid(~celltype)
+g_plot
+ggsave(filename = paste0(dir,"Dotplot_GOCons.png"), plot = g_plot, units = ("cm"), heigh =21, width = 30, dpi = 320)
+```
+
+
+```{r}
+K <- KEGG_con %>%
+  dplyr::select(contains("padj")) %>%
+  replace(. > 0.05, NA)
+K$NoNA <- apply(K, 1, function(x) sum(is.na(x)))
+K$incl <- ifelse(K$NoNA <= 0.75*length(K-1), "y", "n") 
+K <- KEGG_con %>%
+  dplyr::select(geneset, ConsRank, ConsScore, genes_tot, genes_up, genes_dn, Dir, celltype, disease)%>%
+  cbind(K) %>%
+  filter(incl == "y")%>%
+  mutate(genes_dir = case_when(Dir == "up" ~genes_up,
+                               Dir == "down" ~genes_dn))
+K$celltype <- factor(K$celltype, levels = c("GadCer", "PV", "SST", "VglutCer", "GadCb", "VglutCb"))
+K$Dir <- factor(K$Dir, levels = c("up","down"))
+
+k <- K %>%
+  filter(incl == "y")%>%
+  filter(ConsRank <= 5)
+
+
+k_plot <- ggplot(k, aes(x = disease, y = geneset,  size = genes_dir/genes_tot, fill = Dir, alpha = ConsRank, shape = Dir))+
+  geom_point(color = "Black")+
+  scale_alpha_continuous(range = c(1,0.1))+
+  scale_shape_manual(values = c(down = 25, up = 24), guide = "none")+
+  scale_fill_manual(values = c(down = "#006699", up = "#990000"))+
+  theme_bw()+
+  theme(plot.title.position = "plot")+
+  guides(size = guide_legend(override.aes = list(shape = 24)),
+         alpha = guide_legend(override.aes = list(shape = 24, size = 4)),
+         fill = guide_legend(override.aes = list(size = 4, shape = c(24,25))))+
+  labs(title = "Top 5 ranked enriched KEGG pathways, distinct directional",
+       x = "", 
+       y = "KEGG pathways",
+       fill = "Direction of enrichment",
+       size = "Gene ratio",
+       alpha = "Consensus Rank")+
+  facet_grid(~celltype)
+k_plot
+ggsave(filename = paste0(dir,"Dotplot_KEGGCons.png"), plot = k_plot, units = ("cm"), heigh = 28, width = 30, dpi = 320)
+
+```
+
+
+```{r}
+all_k <- K %>%
+  dplyr::select( geneset = geneset, disease, ConsRank, ConsScore, genes_tot, genes_dir, Dir, celltype, incl, ID = geneset)%>%
+  mutate(Cat = "KEGG")
+all_g <- Gcol %>%
+  dplyr::select("geneset" = new_term, disease, ConsRank, ConsScore, genes_tot, genes_dir, Dir, celltype, incl, ID = parent_ID)%>%
+  mutate(Cat = "GO")
+all <-rbind(all_g, all_k)
+
+#Exclude irrelavant terms from plot
+excl <- c("heart|pancreas|ossification|nephros|fat|skeletal|cartilage|UV|respiratory")
+rm <- !grepl(excl, all$geneset, ignore.case = T)
+all <- all[rm,]
+
+#filter to only include top 5 ranked terms
+all <- all %>%
+  filter(incl == "y")%>%
+  filter(ConsRank <= 5)
+
+#change order of how cell types are displayed
+all$celltype <- factor(all$celltype, levels = c("GadCer", "PV", "SST", "VglutCer", "GadCb", "VglutCb"))
+all$Dir <- factor(all$Dir, levels = c("up","down"))
+
+write.csv(all, paste0("./result_files/GSEA/",date,"Results_GSEA_plot.csv"))
+
+#adjust facet labels
+cellname <- c(GadCer = "Gad2 \nCerebrum", PV = "PV \nCerebrum", SST = "SST \nCerebrum", VglutCer = "vGluT2 \nCerebrum", GadCb = "Gad2 \nCerebellum", VglutCb = "vGluT2 \nCerebellum", KEGG = "KEGG pathways", GO = "collapsed GO terms (Biological Process)" )
+
+#Set most relevant genesets in bold
+bold_gs <- c("Ribosome","Parkinson's disease", "ALzheimer's disease", "Huntington's disease", "Proteasome","Axon guidance", "Cholinergic synapse", "Glutamatergic synapse","axon extension", "chromatin organization", "mRNA transport", "positive regulation of autophagy", "protein folding", "regulation of synaptic plasticity", "ribosome biogenesis", "synapse organization" )
+all <- all %>%
+  mutate(fontface = case_when(geneset %in% bold_gs ~"bold",
+                              T ~"plain"))
+all_plot <- ggplot(all, aes(x = disease, y = geneset,  size = genes_dir/genes_tot, fill = Dir, alpha = ConsRank, shape = Dir))+
+  geom_point(color = "Black")+
+  scale_alpha_continuous(range = c(1,0.1))+
+  scale_shape_manual(values = c(down = 25, up = 24), guide = "none")+
+  scale_fill_manual(values = c(down = "#006699", up = "#990000"))+
+  theme_bw()+
+  theme(plot.title.position = "plot",
+        plot.title = element_text(size = 15),
+        axis.text.y = element_text(size = 10),
+        axis.text.x = element_text(size = 14),
+        legend.position = "top",
+        legend.direction = "horizontal",
+        legend.spacing.x = unit(0, "cm"),
+        legend.box = "horizontal")+
+  guides(size = guide_legend(override.aes = list(shape = 24)),
+         alpha = guide_legend(override.aes = list(shape = 24, size = 4)),
+         fill = guide_legend(override.aes = list(size = 4, shape = c(24,25))))+
+  labs(title = "Top 5 ranked enriched GO terms (Biological Process) and KEGG pathways, distinct directional",
+       x = "", 
+       y = "",
+       fill = "Direction of enrichment",
+       size = "Gene ratio",
+       alpha = "Consensus Rank")+
+  facet_grid(Cat~celltype, shrink = T, scales = "free_y", space = "free", labeller = as_labeller(cellname))
+all_plot
+
+ggsave(filename = paste0(dir,"Dotplot_Cons.png"), plot = all_plot, units = ("cm"), heigh = 48, width = 33, dpi = 600)
+
+
+```
+
+
+```{r}
+num_terms <- all %>%
+  group_by(disease, celltype) %>%
+  summarise(terms = n())
+
+sim <- all %>%
+  mutate(gs_dir = interaction(geneset, Dir))%>%
+  group_by(disease, celltype, ID, gs_dir)%>%
+  summarise(tot = n()) %>%
+  ungroup() 
+
+shared <- all %>%
+  mutate(gs_dir = interaction(geneset, Dir))%>%
+  group_by(geneset, celltype, disease, Dir)%>% #number of terms in each celltype+disease by direction
+  summarise(child_terms = as.numeric(n())) %>%
+  ungroup()%>%
+  group_by(geneset, celltype, Dir)%>% 
+  mutate(shared_same = as.numeric(n()))%>%
+  #number of diseases in each celltype+direction if == 2, is shared, if == 1 is unique
+  ungroup()%>%
+  mutate(occurs_in = case_when(shared_same == 1 ~paste(disease),
+                                 shared_same == 2 ~"shared"))%>%
+  #test if unique term only in one disease or if shared for opposing directionality (i.e. if term A is up in FFI and CJD it will be shared, if it is also down only in FFI, it will come up as unique in FFI/down)
+  ungroup()%>%
+  group_by(geneset, celltype, occurs_in, disease)%>%
+  mutate(test_mixed_unique = as.numeric(n()))%>%
+  #this tests if a term occurs only in one disease, but for both directions (then test_mixed_unique==2)
+  group_by(geneset, celltype) %>%
+  mutate(test = as.numeric(n()))%>%
+  mutate(set = case_when(test == 1 ~paste("unique", disease),
+                         test == 2 & occurs_in == "shared" ~paste("shared, same"),
+                         test == 2 & occurs_in != "shared" & test_mixed_unique == 1 ~paste("shared, diff"),
+                         test == 2 & occurs_in != "shared" & test_mixed_unique == 2 ~paste("unique, mix", disease), #is unique to one disease but show both directionalities
+                         test == 3 ~paste("shared, mix one"),
+                         test == 4 ~paste("shared, mix both")))%>%
+#counts number of times a disease+direction combo occurs for a geneset+direction. 
+# if test==1, then occurs only in one disease, not in the other  -> paste unique disease
+# if test==2, then occurs in both diseases but can might have the same directionality in both diseases or different directionality,  or is only in one disease but with diff directionality 
+## if test==2 and occurs_in!="shared", then terms occurs either in
+###     both diseases with differential direction  (test_mixed_unique ==1)-> count as "shared, differential"
+###     or in one disease with both directions -> count as "unique" disease
+## if test==2 and occurs_in=="shared", then term occurs in both diseases with same directionality -> count as "shared, same"
+# if test==3, then is same direction in both diseases + opposite direction in one disease -> count as shared, differential
+# if test==4, then is both up and down-regulated in both diseases and -> count as "shared, differential"
+  ungroup()
+
+check <- shared %>%
+  filter(celltype %in% c("PV","VglutCer"))%>%
+  filter(set %in% c("unique CJD", "unique FFI"))%>%
+  arrange(disease, celltype, geneset)%>%
+  group_by(celltype, set)%>%
+  summarise(n())
+write_csv(check, paste0(dir, "GSEA.csv"))
+
+
+stats <- shared %>%
+  group_by(celltype, set)%>%
+  summarise(n_parent = n(), n_child = sum(child_terms))%>%
+  #n_parents = number of terms in each set (unique FFI, unique CJD, shared same, shared diff) in each celltype
+  #this counts shared terms double!!!!
+  ungroup()%>%
+  mutate(true_n_parent = case_when(set == "shared, diff" ~as.numeric(n_parent/2),
+                                   set == "shared, same" ~as.numeric(n_parent/2),
+                                   set == "shared, mix one" ~as.numeric(n_parent/3),
+                                   set == "shared, mix both" ~as.numeric(n_parent/4),
+                                   set == "unique, mix CJD" ~as.numeric(n_parent/2),
+                                   T ~as.numeric(n_parent)))%>%
+  mutate(true_n_child = case_when(set == "shared, diff" ~as.numeric(n_child/2),
+                                   set == "shared, same" ~as.numeric(n_child/2),
+                                   set == "shared, mix one" ~as.numeric(n_child/3),
+                                   set == "shared, mix both" ~as.numeric(n_child/4),
+                                   set == "unique, mix CJD" ~as.numeric(n_child/2),
+                                   T ~as.numeric(n_child)))%>%
+  mutate(true_n_child = round(true_n_child))%>%
+  mutate(new_set = case_when(set %in% c("shared, mix one" , "shared, mix both") ~paste("shared, same"),
+                             set == "unique, mix CJD" ~paste("unique CJD"),
+                             T ~paste(set)))
+  
+
+stats_plot <- stats %>% 
+  dplyr::select(celltype, new_set,true_n_parent, n_child)%>%
+  group_by(celltype, new_set)%>%
+  summarise(n_terms = sum(true_n_parent))%>%
+  ungroup()%>%
+  group_by(celltype)%>%
+  mutate(total = sum(n_terms))%>%
+  mutate(percent = n_terms/total)%>%
+  mutate(comb_set = case_when(new_set %in% c("unique CJD", "unique FFI") ~paste("unique"),
+                              T ~paste(new_set)))
+
+terms_CJD <- stats %>%
+  filter(set %in% c("unique CJD", "shared, diff", "shared, same"))%>%
+  mutate(dis = "CJD")
+terms_FFI <- stats %>%
+  filter(set %in% c("unique FFI", "shared, diff", "shared, same"))%>%
+  mutate(dis = "FFI")
+term_dis <- rbind(terms_FFI, terms_CJD) %>% 
+  dplyr::select(celltype, new_set, dis, true_n_parent, true_n_child)%>%
+  group_by(dis, celltype)%>%
+  mutate(total_parent = sum(true_n_parent))%>%
+  mutate(perc_of_tot_parent = round(true_n_parent/total_parent*100))
+
+
+
+order <- rev(c("Gad2 Cerebrum","PV Cerebrum", "SST Cerebrum","vGluT2 Cerebrum", "Gad2 Cerebellum", "vGluT2 Cerebellum"))
+set_order <- c( "unique CJD","unique FFI","shared, diff", "shared, same")
+
+no_terms_plot <- term_dis %>%
+  #mutate(new_set = stringr::str_replace(new_set, "shared, same", "shared"))%>%
+  mutate(celltype = case_when(celltype == "GadCer" ~"Gad2 Cerebrum",
+                              celltype == "GadCb" ~"Gad2 Cerebellum",
+                              celltype == "SST" ~"SST Cerebrum",
+                              celltype == "PV" ~"PV Cerebrum",
+                              celltype == "VglutCer" ~"vGluT2 Cerebrum",
+                              celltype == "VglutCb" ~"vGluT2 Cerebellum"))%>%
+  mutate(celltype = factor(celltype, levels = order, ordered = T))%>%
+  mutate(new_set = factor(new_set, levels = set_order, ordered = T))%>%
+  ggplot(aes(y = ordered(celltype), x = true_n_parent, fill = new_set))+
+  geom_bar(stat = "identity")+
+  scale_fill_manual(values = c( "#1D599C","#B74D67","#DDB05C", "#C7DED2"))+
+  theme_minimal()+
+  theme(axis.text = element_text(size = 12))+
+  facet_grid(~dis)+
+  theme(panel.grid = element_blank())+
+  labs(x = "Number of genesets", fill = "", y = "")
+no_terms_plot 
+ggsave(paste0(dir, "barplot_termsbydisease.svg"), units = "cm", width = 16, height = 5, dpi = 300)  
+
+
+write_excel_csv(term_dis, paste0("./result_files/GSEA/",date,"GSEA_term_stats.csv"))
+
+```
+
+
+```{r}
+mTOR <- read.csv("./metadata/gmt_files/GOquick_mTOR_child_cooccur_terms.csv", sep = ";")
+mTOR_GO <- pull(mTOR[3])
+
+sel_terms <- c("synapse organization", 
+               "splicosomal snRNP assembly", 
+               "sodium ion transport", 
+               "small GTPAse mediated signal trasnduction", 
+               "ribosome biogenesis", 
+               "response to starvation", 
+               "regulation synaptic plasticity", 
+               "regulation of synaptic plasticity", 
+               "regulation of mitotic cell cycle", 
+               "regulation of membrane potential",
+               "regulation of cell shape", 
+               "protein folding", 
+               "protein autophosphorylation", 
+               "positive regulation of translation", 
+               "postive regulation of neuron projection development", 
+               "positive regulation of autophagy", 
+               "positive regulation of GTPase activity", 
+               "phosphatidylinositol phosphorylation", 
+               "neuropeptide signaling pathway",
+               "neuronal action potential", 
+               "neuron migration", 
+               "neuron differentialtion", 
+               "negative regulation of gene expression", 
+               "mRNA transport", "mitochondrial translation", 
+               "locomotory behavior", 
+               "lipid metabolic process", 
+               "learning", 
+               "intracellular protein transport",
+               "inflammatory response",
+               "DNA replication", 
+               "DNA repair", 
+               "chromatin organization", 
+               "cellular modified amino acid metabolic process", 
+               "cell morphogenesis" ,
+               "axon extension", 
+               "ATP metabolic process", 
+               "actin filament organization", 
+               "actin filament depolymerization", 
+               "Splicosome", 
+               "RNA transport", 
+               "SNARE interactions in vesicular transport", 
+               "Ribosome", 
+               "Ras signaling pathway",
+               "Rap1 signaling pathway",
+               "Phosphatidylinositol singaling system", 
+               "Parkinson disease", 
+               "Proteasome", 
+               "Protein processing in endoplasmic reticulum", 
+               "Inositol phosphate metabolsim", 
+               "Huntington disease", 
+               "Glycolysis/Gluconeogenesis", 
+               "Glutamatergic synapse", 
+               "Gap junction", 
+               "Citrate cycle (TCA cycle)", 
+               "cholinergic synapse", 
+               "Cell adhesion molecues (CAMs)",
+               "Calcium signaling pathway", 
+               "cAMP singnaling pathway", 
+               "Axon guidance", 
+               "Apoptosis", 
+               "Alzheimer's disease")
+
+
+sel_GSEA <- all%>%
+  filter(geneset %in% mTOR_GO | geneset %in% sel_terms)
+
+sel_plot <- ggplot(sel_GSEA, aes(x = disease, y = geneset,  size = genes_dir/genes_tot, fill = Dir, alpha = ConsRank, shape = Dir))+
+  geom_point(color = "Black")+
+  scale_alpha_continuous(range = c(1,0.1))+
+  scale_shape_manual(values = c(down = 25, up = 24), guide = "none")+
+  scale_fill_manual(values = c(down = "#006699", up = "#990000"))+
+  theme_bw()+
+  theme(plot.title.position = "plot",
+        plot.title = element_text(size = 18),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 15),
+        legend.position = "top",
+        legend.direction = "horizontal",
+        legend.spacing.x = unit(0, "cm"),
+        legend.box = "horizontal")+
+  guides(size = guide_legend(override.aes = list(shape = 24)),
+         alpha = guide_legend(override.aes = list(shape = 24, size = 6)),
+         fill = guide_legend(override.aes = list(size = 6, shape = c(24,25))))+
+  labs(title = "Selected GO terms (Biological Process) and KEGG pathways",
+       x = "", 
+       y = "",
+       fill = "Direction of enrichment",
+       size = "Gene ratio",
+       alpha = "Consensus Rank")+
+  facet_grid(Cat~celltype, shrink = T, scales = "free_y", space = "free", labeller = as_labeller(cellname))
+sel_plot
+
+ggsave(filename = paste0(dir,"Dotplot_Cons_selectedterms.svg"), plot = sel_plot, units = ("cm"), heigh = 28, width = 33, dpi = 600)
+
+  
+```
+
+

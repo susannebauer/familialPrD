@@ -1,0 +1,286 @@
+---
+title: "GSA analysis Piano using DEseq2 gene level stats"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: "Susanne Bauer"
+output: 
+  html_document: 
+    fig_caption: yes
+params:
+  celltype: "SST"
+  disease: "FFI"
+---
+
+```{r Setup, include = FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.height = 8, fig.width = 12, fig.align = 'center')
+```
+
+
+```{r load packages, include = FALSE, echo = FALSE}
+library(piano)
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+library(org.Hs.eg.db)
+library(ggplot2)
+library(ggridges)
+library(plyr)
+library(dplyr)
+library(kableExtra)
+library(patchwork)
+library(enrichR)
+
+celltype <- params$celltype
+disease <- params$disease
+dataset <- paste0(disease, "_",celltype)
+date <- Sys.Date()
+
+dir <- paste0("./result_files/GSEA/")
+ifelse(!dir.exists(dir), dir.create(dir), F)
+
+```
+
+
+```{r load files, include=FALSE, echo=FALSE}
+gscKEGG <- loadGSC("./metadata/gmt_files/KEGG_2019_Mouse.gmt", type="gmt")  
+gscGO <- loadGSC("./metadata/gmt_files/c5.go.bp.v7.4.symbols.gmt", type="gmt") 
+ 
+all_DESeq_res <- read.csv(paste0("./result_files/DESeq2/",disease,"_DESeq_res_all.csv"), header = T, row.names = 1)
+
+##### removing terms with different embryonic origin regex from kegg
+regex_to_exclude = "leukemia|chagas disease|colorectal|endometrial|gastric cancer|glioma|hepatitis|hepatocellular|infection|melanoma|osteoclast|pancreatic|olfactory|renal cell|lupus|cardio|cardiac|trypanosomiasis|amoebiasis|asthma|thyroid|bacterial|bile|bladder|graft|legionellosis|leishmania|malaria|measles|melanogenesis|lung|NAFLD|ovarian|pertussis|prostate|adipocyte|arthritis|salivary|shigellosis|toxoplasmosis|tuberculosis|viral|coagulation|bowel|Oocyte|tubule|Influenza|Intestinal|Hematopoietic|Breast|xenobiotics|Cushing|Gastric|atherosclerosis|Gastric acid|Basal cell|Leukocyte"
+
+remove_from_gmt = function(gmt_input) {
+    gmt_out = gmt_input
+    all_names = names(gmt_input$gsc)
+    out = all_names[grepl(regex_to_exclude, all_names, perl = T, ignore.case = T)]
+    gmt_out$gsc = within(gmt_out$gsc, rm(list = out))
+    
+    return(gmt_out)
+}
+gscKEGG <- remove_from_gmt(gscKEGG)
+
+
+
+#add GO IDs to gene set names and convert to more readable format
+library(stringr)
+names(gscGO$gsc) <- names(gscGO$gsc)%>%
+  str_remove(.,"GOBP_*") %>%
+  str_replace_all(., "_", " ")
+
+#Add GO ID to geneset
+library(GO.db)
+GOid <- data.frame(Term(GOTERM))
+GOid$GOid <- paste0(GOid$Term.GOTERM., " (", rownames(GOid),")")
+
+terms <- data.frame(names(gscGO$gsc))
+idx <- match(terms[,1], str_to_upper(GOid$Term.GOTERM.))
+terms$GOid <- GOid[idx,"GOid"]
+terms <- terms[complete.cases(terms),]
+idx2 <- match(terms[,1], names(gscGO$gsc))
+
+gscGOn <- gscGO
+gscGOn$gsc <- gscGO$gsc[idx2]
+gscGOn$addInfo <- gscGO$addInfo[idx2,]
+idx3 <- match(terms[,1], names(gscGOn$gsc))
+names(gscGOn$gsc) <- terms[idx3, "GOid"]
+
+```
+
+
+```{r get DEseq2 gene level statistics, include=FALSE, echo=FALSE}
+# get df with gene level statistics (LFC, p value) by gene symbol
+geneLevelStats <- all_DESeq_res %>%
+  filter(Celltype == celltype) %>%
+  dplyr::select("ensembl_gene_id" = Ensembl, sLFC, pvalue, padj, "gene" = symbol)
+
+#detect duplicates by gene names and keeps only most significant observation
+dup_genes <- geneLevelStats[(which(duplicated(geneLevelStats$gene))),"gene"]
+select <- geneLevelStats %>%
+    filter(gene %in% dup_genes) %>%
+    group_by(gene) %>%
+    filter(pvalue == min(pvalue))
+geneLevelStats <- geneLevelStats %>%
+    filter(!gene %in% dup_genes) %>%
+    rbind(.,select)
+
+#add human gene ID for GO analysis
+library(biomaRt)
+ensembl <- useMart("ENSEMBL_MART_ENSEMBL")
+ensembl <- useDataset("mmusculus_gene_ensembl", mart=ensembl)
+bm <- getBM(attributes=c("ensembl_gene_id","hsapiens_homolog_associated_gene_name"),
+            filters="ensembl_gene_id",
+            values=geneLevelStats$ensembl_gene_id, # note that now we use all genes here!
+            mart=ensembl)
+bm <- bm[bm[,2]%in%unique(unlist(gscGO)),] # filter for genes in the GO gene-set collection
+bm <- bm[!duplicated(bm[,1]),]
+
+geneLevelStats <- merge(geneLevelStats, bm, by="ensembl_gene_id", all.x=T, sort=F)
+# avoid duplicating gene-level statistics due to Ensembl ID mapping to multiple symbols:
+geneLevelStats <- geneLevelStats[!duplicated(geneLevelStats$gene),]
+
+geneLevelStats <- geneLevelStats %>%
+  mutate(score = sign(sLFC)* -log10(pvalue))%>%
+  arrange(desc(score))
+
+scores <- geneLevelStats$score
+names(scores) <- str_to_upper(geneLevelStats$gene)
+head(scores)
+
+pvalue <- geneLevelStats$pvalue
+LFC <- geneLevelStats$sLFC
+names(pvalue) <- names(LFC) <- str_to_upper(geneLevelStats$gene)
+```
+
+#GSA hypergeometric test
+```{r}
+DEGs <- geneLevelStats[order(geneLevelStats$padj, decreasing = F),]
+DEGs <- filter(DEGs, padj < 0.05)
+res_DEG_GO <- runGSAhyper(genes = str_to_upper(DEGs$gene),
+                          gsc = gscGO,
+                          universe = str_to_upper(geneLevelStats$gene),
+                          gsSizeLim = c(15,500),
+                          adjMethod = "BH")
+resTable <- data.frame(res_DEG_GO$resTab[order(res_DEG_GO$p.adj, decreasing = F),])
+resTable <- filter(resTable, Adjusted.p.value < 0.1)
+```
+
+
+#run GSA for KEGG pathways and GO terms
+```{r run GSA for KEGG pathways and GO terms}
+
+#"mean" uses pvalues 
+gsaResKEGG_mean <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscKEGG, signifMethod = "geneSampling", geneSetStat = "mean", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResKEGG_median <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscKEGG, signifMethod = "geneSampling", geneSetStat = "median", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResKEGG_sum <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscKEGG, signifMethod = "geneSampling", geneSetStat = "sum", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResKEGG_stouffer <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscKEGG, signifMethod = "geneSampling", geneSetStat = "stouffer", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResKEGG_reporter <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscKEGG, signifMethod = "geneSampling", geneSetStat = "reporter", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResKEGG_tail <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscKEGG, signifMethod = "geneSampling", geneSetStat = "tailStrength", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+
+#make list with GSA results
+resListKEGG <- list(gsaResKEGG_mean, gsaResKEGG_median, gsaResKEGG_sum, gsaResKEGG_reporter, gsaResKEGG_tail)
+
+names(resListKEGG) <- c("mean", "median", "sum","reporter","tail")
+
+saveRDS(resListKEGG, file = paste0(outdir, disease,"_", celltype, "_GSA_streptail_resKEGG.Rds"))
+
+
+#Get Consensus ranking and plots
+KEGG_up <- consensusScores(resList = resListKEGG, class = "distinct", direction = "up", method = "median", adjusted = T, plot = T,  n = 100, main = paste0(dataset, ", consensus scores (median), KEGG up"))
+KEGG_up$rankMat
+
+KEGG_down <- consensusScores(resList = resListKEGG, class = "distinct", direction = "down", method = "median", adjusted = T, plot = T,  n = 100, main = paste0(dataset, " - ",celltype,", consensus scores (median), KEGG down")) 
+KEGG_down$rankMat
+
+KEGG_non <- consensusScores(resList = resListKEGG, class = "non", method = "median", adjusted = T, plot = T,  n = 100, main = paste0(dataset, ", consensus scores (median), KEGG non-dir")) 
+KEGG_non$rankMat
+
+date <- Sys.Date()
+save.image(file = paste0(dir, "/R_sessions/GSEA_streptail_score_", dataset, "_", date,".RData"))
+```
+
+
+```{r}
+
+#run GSA for GO terms
+gsaResGO_mean <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscGOn, signifMethod = "geneSampling", geneSetStat = "mean", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResGO_median <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscGOn, signifMethod = "geneSampling", geneSetStat = "median", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResGO_sum <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscGOn, signifMethod = "geneSampling", geneSetStat = "sum", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResGO_stouffer <- runGSA(geneLevelStats = pvalue, directions = LFC,  gsc=gscGOn, signifMethod = "geneSampling", geneSetStat = "stouffer", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResGO_reporter <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscGOn, signifMethod = "geneSampling", geneSetStat = "reporter", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+gsaResGO_tail <- runGSA(geneLevelStats = pvalue, directions = LFC, gsc=gscGOn, signifMethod = "geneSampling", geneSetStat = "tailStrength", adjMethod = "fdr", gsSizeLim = c(15,500), nPerm = 10000)
+
+
+#save list with results from GSEA
+resListGO <- list(gsaResGO_mean, gsaResGO_median, gsaResGO_sum, gsaResGO_reporter, gsaResGO_tail)
+names(resListGO) <- c("mean","median","sum", "reporter", "tail")
+
+# resListGO_w_fgsea <- resListGO
+# resListGO_w_fgsea$fgsea <- gsaResGO_fgsea
+saveRDS(resListGO, file = paste0(outdir, disease,"_", celltype, "_GSA_streptail_resGO.Rds"))
+
+
+#Get consensus ranks for GO GSEA
+GO_up <- consensusScores(resList = resListGO, class = "distinct", direction = "up", method = "median", adjusted = T, plot = T, n = 100, cexLabel = 1, main = paste0(dataset, ", consensus scores (median), GO up"))
+GO_up$rankMat
+
+GO_down <- consensusScores(resList = resListGO, class = "distinct", direction = "down", method = "median", adjusted = T, plot = T,  n = 100, main = paste0(dataset, ", consensus scores (median), GO down")) 
+GO_down$rankMat
+
+GO_non <- consensusScores(resList = resListGO, class = "non", method = "median", adjusted = T, plot = T, n = 100, main = paste0(dataset,", consensus scores (median), GO non-dir")) 
+GO_down$rankMat
+```
+
+
+```{r}
+
+get_cons_table <- function(c, r){
+
+  #Get adjusted p values for consensus gene sets from results list
+  con_gs <- data.frame(rownames(c$rankMat))
+  colnames(con_gs) <- "geneset"
+  
+  for (i in 1:length(r)) {
+    res <- GSAsummaryTable(r[[i]])
+    up <- paste0(names(r[i]),"_padj_up")
+    dn <- paste0(names(r[i]),"_padj_down")
+    gs_padj <- res %>%
+        filter(Name %in% con_gs$geneset)%>%
+        dplyr::select(Name, `p adj (dist.dir.up)`, `p adj (dist.dir.dn)`)
+    colnames(gs_padj) <- c("geneset", up, dn)
+    con_gs <- merge(con_gs, gs_padj, by = "geneset")
+    i <- i+1
+  }
+  
+  #merge consensus rank and padj values in df
+  res_pval <- merge(c$rankMat, con_gs, by.x = 0, by.y = "geneset", suffixes = c("_rank", "_padj"))
+  
+  #get number of genes in gene set and direction
+  gene_num <- GSAsummaryTable(r[[1]]) %>%
+    filter(Name %in% con_gs$geneset)%>%
+    dplyr::select(Name, genes_tot = `Genes (tot)`, genes_up = `Genes (up)`, genes_dn = `Genes (down)`)
+  
+  res_pval <- merge(res_pval, gene_num, by.x = "Row.names", by.y = "Name")
+  colnames(res_pval)[1] <- "geneset"
+  res_pval <- arrange(res_pval, ConsRank)
+  
+  return(res_pval)
+}
+
+kegg_up <- get_cons_table(KEGG_up, resListKEGG)
+kegg_up$Dir <- "up"
+kegg_down <- get_cons_table(KEGG_down, resListKEGG)
+kegg_down$Dir <- "down"
+con_kegg <- rbind(kegg_up, kegg_down)
+con_kegg$dataset <- dataset
+
+go_up <- get_cons_table(GO_up, resListGO)
+go_up$Dir <- "up"
+go_down <- get_cons_table(GO_down, resListGO)
+go_down$Dir <- "down"
+con_go <- rbind(go_up, go_down)
+con_go$dataset <- dataset
+
+
+write.csv(con_kegg, file = paste0(outdir, dataset, "_reptail_consKEGG_",date,".csv"))
+write.csv(con_go, file = paste0(outdir, dataset, "_reptail_consGO_",date,".csv"))
+```
+
+
+```{r save session}
+writeLines(capture.output(sessionInfo()), paste0("./documentation/GSEA_streptail", dataset,"_",date, ".txt"))
+
+date <- Sys.Date()
+save.image(file = paste0("./R_sessions/GSEA_streptail", dataset, "_", date,".RData"))
+```
+
